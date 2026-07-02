@@ -1,5 +1,13 @@
 package domain
 
+type UserStatus string
+
+const (
+	UserStatusActive  UserStatus = "active"
+	UserStatusBlocked UserStatus = "blocked"
+	UserStatusDeleted UserStatus = "deleted"
+)
+
 type RemnaStatus string
 
 const (
@@ -42,18 +50,26 @@ const (
 type SubscriptionStatus string
 
 const (
-	SubscriptionStatusActive           SubscriptionStatus = "active"
-	SubscriptionStatusExpired          SubscriptionStatus = "expired"
-	SubscriptionStatusTrafficExhausted SubscriptionStatus = "traffic_exhausted"
-	SubscriptionStatusCancelled        SubscriptionStatus = "cancelled"
+	SubscriptionStatusActive    SubscriptionStatus = "active"
+	SubscriptionStatusExpired   SubscriptionStatus = "expired"
+	SubscriptionStatusCancelled SubscriptionStatus = "cancelled"
+)
+
+type PeriodStatus string
+
+const (
+	PeriodStatusActive           PeriodStatus = "active"
+	PeriodStatusTrafficExhausted PeriodStatus = "traffic_exhausted"
+	PeriodStatusFinished         PeriodStatus = "finished"
 )
 
 type BroadcastStatus string
 
 const (
 	BroadcastStatusDraft     BroadcastStatus = "draft"
+	BroadcastStatusQueued    BroadcastStatus = "queued"
 	BroadcastStatusSending   BroadcastStatus = "sending"
-	BroadcastStatusCompleted BroadcastStatus = "completed"
+	BroadcastStatusFinished  BroadcastStatus = "finished"
 	BroadcastStatusFailed    BroadcastStatus = "failed"
 	BroadcastStatusCancelled BroadcastStatus = "cancelled"
 )

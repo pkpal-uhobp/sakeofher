@@ -7,10 +7,20 @@ import (
 	"sakeofher/internal/repository"
 )
 
-type UserService struct{ repo *repository.Repositories }
+type userService struct{ repo *repository.Repositories }
 
-func NewUserService(repo *repository.Repositories) *UserService { return &UserService{repo: repo} }
+func NewUserService(repo *repository.Repositories) UserService { return &userService{repo: repo} }
 
-func (s *UserService) GetOrCreateTelegramUser(ctx context.Context, input domain.TelegramUserInput) (*domain.User, error) {
-	return s.repo.Users.CreateTelegramUser(ctx, input)
+func (s *userService) GetOrCreateTelegramUser(ctx context.Context, input domain.TelegramUserInput) (*domain.User, error) {
+	if input.TelegramID <= 0 {
+		return nil, domain.ErrInvalidInput
+	}
+	return s.repo.Users.CreateOrUpdateTelegramUser(ctx, input)
+}
+
+func (s *userService) GetByTelegramID(ctx context.Context, telegramID int64) (*domain.User, error) {
+	if telegramID <= 0 {
+		return nil, domain.ErrInvalidInput
+	}
+	return s.repo.Users.GetByTelegramID(ctx, telegramID)
 }

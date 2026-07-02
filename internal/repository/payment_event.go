@@ -21,10 +21,10 @@ func (r *PaymentEventRepository) CreateOnce(ctx context.Context, e domain.Paymen
 	defer cancel()
 
 	q := `
-        INSERT INTO payment_events (provider, event_id, payment_id, event_type, raw_payload)
-        VALUES ($1, $2, $3, $4, $5)
-    `
-	_, err := r.tx.Querier(ctx).Exec(ctx, q, e.Provider, e.EventID, e.PaymentID, e.EventType, e.RawPayload)
+		INSERT INTO payment_events (provider, event_id, payment_id, event_type, raw_payload, processed_at)
+		VALUES ($1, $2, $3, $4, $5::jsonb, now())
+	`
+	_, err := r.tx.Querier(ctx).Exec(ctx, q, e.Provider, e.EventID, e.PaymentID, e.EventType, jsonPayload(e.RawPayload))
 	if err != nil {
 		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "23505" {
 			return false, nil

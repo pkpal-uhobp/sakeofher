@@ -2,6 +2,6 @@ package service
 
 import "sakeofher/internal/repository"
 
-type AdminService struct{ repo *repository.Repositories }
+type adminService struct{ repo *repository.Repositories }
 
-func NewAdminService(repo *repository.Repositories) *AdminService { return &AdminService{repo: repo} }
+func NewAdminService(repo *repository.Repositories) AdminService { return &adminService{repo: repo} }

@@ -21,17 +21,29 @@ func NewScheduler(services *service.Services, cfg config.WorkerConfig, log *zap.
 }
 
 func (s *Scheduler) Run(ctx context.Context) error {
-	ticker := time.NewTicker(s.cfg.ExpireInterval)
-	defer ticker.Stop()
+	expireTicker := time.NewTicker(s.cfg.ExpireInterval)
+	deleteTicker := time.NewTicker(s.cfg.DeleteDisabledInterval)
+	retryTicker := time.NewTicker(s.cfg.RetryActivationInterval)
+	defer expireTicker.Stop()
+	defer deleteTicker.Stop()
+	defer retryTicker.Stop()
 
 	s.log.Info("worker scheduler started")
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
+		case <-expireTicker.C:
 			if err := s.services.Workers.ExpireSubscriptions(ctx); err != nil {
 				s.log.Error("expire subscriptions failed", zap.Error(err))
+			}
+		case <-deleteTicker.C:
+			if err := s.services.Workers.DeleteOldDisabledUsers(ctx); err != nil {
+				s.log.Error("delete old disabled users failed", zap.Error(err))
+			}
+		case <-retryTicker.C:
+			if err := s.services.Workers.RetryFailedActivations(ctx); err != nil {
+				s.log.Error("retry failed activations failed", zap.Error(err))
 			}
 		}
 	}

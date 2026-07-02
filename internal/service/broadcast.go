@@ -2,11 +2,11 @@ package service
 
 import "sakeofher/internal/repository"
 
-type BroadcastService struct {
+type broadcastService struct {
 	repo          *repository.Repositories
-	notifications *NotificationService
+	notifications NotificationService
 }
 
-func NewBroadcastService(repo *repository.Repositories, notifications *NotificationService) *BroadcastService {
-	return &BroadcastService{repo: repo, notifications: notifications}
+func NewBroadcastService(repo *repository.Repositories, notifications NotificationService) BroadcastService {
+	return &broadcastService{repo: repo, notifications: notifications}
 }

@@ -5,13 +5,13 @@ import (
 	"sakeofher/internal/gateway"
 )
 
-type NotificationService struct{ telegram gateway.TelegramGateway }
+type notificationService struct{ telegram gateway.TelegramGateway }
 
-func NewNotificationService(telegram gateway.TelegramGateway) *NotificationService {
-	return &NotificationService{telegram: telegram}
+func NewNotificationService(telegram gateway.TelegramGateway) NotificationService {
+	return &notificationService{telegram: telegram}
 }
 
-func (s *NotificationService) Send(ctx context.Context, telegramID int64, text string) error {
+func (s *notificationService) Send(ctx context.Context, telegramID int64, text string) error {
 	if s.telegram == nil {
 		return nil
 	}

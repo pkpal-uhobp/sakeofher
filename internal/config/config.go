@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -111,6 +112,17 @@ func parseAdminIDs(raw string) []int64 {
 	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
-	// Пока оставляем парсинг в следующем этапе, чтобы не тянуть лишнюю логику в каркас.
-	return nil
+	parts := strings.Split(raw, ",")
+	ids := make([]int64, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, err := strconv.ParseInt(part, 10, 64)
+		if err == nil && id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }

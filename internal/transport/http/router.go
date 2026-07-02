@@ -13,9 +13,24 @@ func NewRouter(services *service.Services, log *zap.Logger) http.Handler {
 	mux := http.NewServeMux()
 
 	public := NewPublicHandler(services)
+	bot := NewBotHandler(services)
+	site := NewSiteHandler(services)
+
+	mux.HandleFunc("GET /docs", swaggerUIHandler)
+	mux.HandleFunc("GET /docs/", swaggerUIHandler)
+	mux.HandleFunc("GET /swagger", swaggerUIHandler)
+	mux.HandleFunc("GET /docs/openapi.yaml", openAPIHandler)
+	mux.HandleFunc("GET /docs/api.yaml", openAPIHandler)
 
 	mux.HandleFunc("GET /api/v1/health", healthHandler)
 	mux.HandleFunc("GET /api/v1/tariffs", public.ListTariffs)
+	mux.HandleFunc("GET /api/v1/public/subscriptions/{public_token}", public.GetPublicSubscription)
+
+	mux.HandleFunc("POST /api/v1/bot/start", bot.Start)
+	mux.HandleFunc("GET /api/v1/bot/users/{telegram_id}/subscription", bot.GetSubscription)
+
+	mux.HandleFunc("POST /api/v1/site/subscriptions/purchase", site.PurchaseSubscription)
+	mux.HandleFunc("POST /api/v1/site/subscriptions/renew", site.RenewSubscription)
 
 	return withRecovery(log, withAccessLog(log, mux))
 }

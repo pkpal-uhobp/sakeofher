@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:18.3
+    container_name: sakeofher-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sakeofher
+      POSTGRES_PASSWORD: sakeofher_password
+      POSTGRES_DB: sakeofher
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sakeofher -d sakeofher"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_CMD: api
+    container_name: sakeofher-api
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_CMD: bot
+    container_name: sakeofher-bot
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_CMD: worker
+    container_name: sakeofher-worker
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

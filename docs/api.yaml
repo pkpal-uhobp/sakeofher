@@ -1,0 +1,17 @@
+openapi: 3.0.3
+info:
+  title: sakeofher API
+  version: 0.1.0
+paths:
+  /api/v1/health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+  /api/v1/tariffs:
+    get:
+      summary: List active tariffs
+      responses:
+        '200':
+          description: OK

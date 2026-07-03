@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"sakeofher/internal/domain"
 	"sakeofher/internal/gateway"
@@ -18,6 +19,17 @@ type TariffService interface {
 	ListActiveWithPrices(ctx context.Context) ([]domain.TariffWithPrices, error)
 }
 
+type AuthService interface {
+	StartTelegramOAuth(ctx context.Context) (*domain.TelegramOAuthStart, string, string, string, error)
+	FinishTelegramOAuth(ctx context.Context, input domain.TelegramOAuthCallbackInput) (*domain.AuthSession, error)
+}
+
+type SiteService interface {
+	GetConfig(ctx context.Context) (*domain.SiteConfig, error)
+	CreatePurchaseLink(ctx context.Context, input domain.SitePurchaseLinkInput) (*domain.SiteCheckoutLink, error)
+	CreateRenewLink(ctx context.Context, input domain.SiteRenewLinkInput) (*domain.SiteCheckoutLink, error)
+}
+
 type PaymentService interface {
 	CreatePayment(ctx context.Context, input domain.CreatePaymentInput) (*domain.Payment, error)
 	MarkPaidForDev(ctx context.Context, paymentID int64, providerPaymentID string) (*domain.Payment, error)
@@ -28,11 +40,10 @@ type PaymentService interface {
 type SubscriptionService interface {
 	GetPublicByToken(ctx context.Context, token string) (*domain.PublicSubscription, error)
 	GetActiveByTelegramID(ctx context.Context, telegramID int64) (*domain.PublicSubscription, error)
+	GetLatestByTelegramID(ctx context.Context, telegramID int64) (*domain.PublicSubscription, error)
 	ActivateAfterPayment(ctx context.Context, paymentID int64) error
 	DisableExpiredSubscriptions(ctx context.Context, limit int) error
 	DeleteOldDisabledUsers(ctx context.Context, limit int) error
-	PurchaseFromSite(ctx context.Context, input domain.SitePurchaseInput) (*domain.PublicSubscription, error)
-	RenewFromSite(ctx context.Context, input domain.SiteRenewInput) (*domain.PublicSubscription, error)
 }
 
 type NotificationService interface {
@@ -50,8 +61,10 @@ type WorkerService interface {
 }
 
 type Services struct {
+	Auth          AuthService
 	Users         UserService
 	Tariffs       TariffService
+	Site          SiteService
 	Payments      PaymentService
 	Subscriptions SubscriptionService
 	Admins        AdminService
@@ -60,15 +73,17 @@ type Services struct {
 	Workers       WorkerService
 }
 
-func NewServices(repo *repository.Repositories, gates gateway.Gateways) *Services {
+func NewServices(repo *repository.Repositories, gates gateway.Gateways, telegramBotUsername string, publicURL string, subscriptionPathSecret string, jwtSecret string, jwtAccessTTL time.Duration, telegramOAuthRedirectURI string) *Services {
 	notifications := NewNotificationService(gates.Telegram)
 	subscriptions := NewSubscriptionService(repo, gates.Remnawave, notifications)
 	payments := NewPaymentService(repo, gates, subscriptions)
 	workers := NewWorkerService(subscriptions, payments)
 
 	return &Services{
+		Auth:          NewAuthService(repo, gates.TelegramOAuth, jwtSecret, jwtAccessTTL, telegramOAuthRedirectURI),
 		Users:         NewUserService(repo),
 		Tariffs:       NewTariffService(repo),
+		Site:          NewSiteService(repo, telegramBotUsername, publicURL, subscriptionPathSecret),
 		Payments:      payments,
 		Subscriptions: subscriptions,
 		Admins:        NewAdminService(repo),

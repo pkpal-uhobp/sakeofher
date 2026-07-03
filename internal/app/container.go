@@ -45,12 +45,13 @@ func NewContainer(ctx context.Context) (*Container, error) {
 
 	repos := repository.NewRepositories(db)
 	gates := gateway.Gateways{
-		Remnawave: remnawave.NewClient(cfg.Remnawave.BaseURL, cfg.Remnawave.Token, cfg.Remnawave.Timeout),
-		Tribute:   tribute.NewClient(cfg.Tribute.APIKey, cfg.Tribute.Timeout),
-		CryptoBot: cryptobot.NewClient(cfg.CryptoBot.APIToken, cfg.CryptoBot.Timeout),
-		Telegram:  telegram.NewNotifier(cfg.Telegram.BotToken, log),
+		Remnawave:     remnawave.NewClient(cfg.Remnawave.BaseURL, cfg.Remnawave.Token, cfg.Remnawave.Timeout),
+		Tribute:       tribute.NewClient(cfg.Tribute.APIKey, cfg.Tribute.Timeout),
+		CryptoBot:     cryptobot.NewClient(cfg.CryptoBot.APIToken, cfg.CryptoBot.Timeout),
+		Telegram:      telegram.NewNotifier(cfg.Telegram.BotToken, log),
+		TelegramOAuth: telegram.NewOAuthClient(cfg.Telegram.OAuthClientID, cfg.Telegram.OAuthClientSecret, cfg.Telegram.OAuthRedirectURL, cfg.Telegram.OAuthTimeout),
 	}
-	services := service.NewServices(repos, gates)
+	services := service.NewServices(repos, gates, cfg.Telegram.BotUsername, cfg.App.PublicURL, cfg.App.SubscriptionPathSecret, cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.Telegram.OAuthRedirectURL)
 
 	return &Container{Config: cfg, Log: log, Repositories: repos, Gateways: gates, Services: services, DB: db}, nil
 }

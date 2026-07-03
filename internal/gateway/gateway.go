@@ -23,9 +23,16 @@ type TelegramGateway interface {
 	SendMessage(ctx context.Context, telegramID int64, text string) error
 }
 
+type TelegramOAuthGateway interface {
+	BuildAuthURL(state string, codeChallenge string, nonce string) string
+	ExchangeCode(ctx context.Context, req domain.TelegramOIDCTokenRequest) (*domain.TelegramOIDCTokenResponse, error)
+	VerifyIDToken(ctx context.Context, idToken string, expectedNonce string) (*domain.TelegramOIDCClaims, error)
+}
+
 type Gateways struct {
-	Remnawave RemnawaveGateway
-	Tribute   TributeGateway
-	CryptoBot CryptoBotGateway
-	Telegram  TelegramGateway
+	Remnawave     RemnawaveGateway
+	Tribute       TributeGateway
+	CryptoBot     CryptoBotGateway
+	Telegram      TelegramGateway
+	TelegramOAuth TelegramOAuthGateway
 }

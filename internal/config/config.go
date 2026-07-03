@@ -24,8 +24,9 @@ type Config struct {
 }
 
 type AppConfig struct {
-	Env       string `envconfig:"APP_ENV" default:"local"`
-	PublicURL string `envconfig:"APP_PUBLIC_URL" default:"http://localhost:8080"`
+	Env                    string `envconfig:"APP_ENV" default:"local"`
+	PublicURL              string `envconfig:"APP_PUBLIC_URL" default:"http://localhost:8080"`
+	SubscriptionPathSecret string `envconfig:"SUBSCRIPTION_PATH_SECRET" default:"L0mENeiofHjdxC57"`
 }
 
 type HTTPConfig struct {
@@ -39,9 +40,15 @@ type JWTConfig struct {
 }
 
 type TelegramConfig struct {
-	BotToken    string  `envconfig:"TELEGRAM_BOT_TOKEN"`
-	AdminIDs    []int64 `ignored:"true"`
-	RawAdminIDs string  `envconfig:"TELEGRAM_ADMIN_IDS" default:""`
+	BotToken                string        `envconfig:"TELEGRAM_BOT_TOKEN"`
+	BotUsername             string        `envconfig:"TELEGRAM_BOT_USERNAME" default:""`
+	OAuthClientID           string        `envconfig:"TELEGRAM_OAUTH_CLIENT_ID" default:""`
+	OAuthClientSecret       string        `envconfig:"TELEGRAM_OAUTH_CLIENT_SECRET" default:""`
+	OAuthRedirectURL        string        `envconfig:"TELEGRAM_OAUTH_REDIRECT_URL" default:"http://localhost:5173/api/v1/auth/telegram/oauth/callback"`
+	OAuthSuccessRedirectURL string        `envconfig:"TELEGRAM_OAUTH_SUCCESS_REDIRECT_URL" default:"http://localhost:5173/auth/success"`
+	OAuthTimeout            time.Duration `envconfig:"TELEGRAM_OAUTH_TIMEOUT" default:"15s"`
+	AdminIDs                []int64       `ignored:"true"`
+	RawAdminIDs             string        `envconfig:"TELEGRAM_ADMIN_IDS" default:""`
 }
 
 type RemnawaveConfig struct {

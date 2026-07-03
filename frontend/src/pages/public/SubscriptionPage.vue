@@ -7,9 +7,13 @@ const route = useRoute()
 const loading = ref(true)
 const error = ref('')
 const item = ref<any>(null)
-const renewing = ref(false)
+const checkout = ref<any>(null)
+const creatingRenewLink = ref(false)
 
 const token = computed(() => String(route.params.token || ''))
+const secret = computed(() => String(route.params.secret || ''))
+const telegramId = computed(() => String(route.params.telegramId || ''))
+const isTelegramSubscriptionPath = computed(() => Boolean(secret.value && telegramId.value))
 const trafficGB = computed(() => bytesToGB(item.value?.subscription?.traffic_limit_bytes || 0))
 const usedGB = computed(() => bytesToGB(item.value?.subscription?.traffic_used_bytes || 0))
 const daysLeft = computed(() => {
@@ -23,7 +27,10 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const { data } = await api.get(`/public/subscriptions/${token.value}`)
+    const endpoint = isTelegramSubscriptionPath.value
+      ? `/subscriptions/path/${encodeURIComponent(secret.value)}/telegram/${encodeURIComponent(telegramId.value)}`
+      : `/subscriptions/public/${encodeURIComponent(token.value)}`
+    const { data } = await api.get(endpoint)
     item.value = data
   } catch (e: any) {
     error.value = e?.response?.data?.error || e.message || 'Подписка не найдена'
@@ -32,18 +39,19 @@ async function load() {
   }
 }
 
-async function renew() {
-  renewing.value = true
+async function createRenewLink() {
+  creatingRenewLink.value = true
   error.value = ''
+  checkout.value = null
   try {
-    const { data } = await api.post('/site/subscriptions/renew', {
-      public_token: token.value,
+    const { data } = await api.post('/checkout/renew', {
+      public_token: item.value?.subscription?.public_token || token.value,
     })
-    item.value = data
+    checkout.value = data
   } catch (e: any) {
-    error.value = e?.response?.data?.error || e.message || 'Ошибка продления'
+    error.value = e?.response?.data?.error || e.message || 'Ошибка формирования ссылки продления'
   } finally {
-    renewing.value = false
+    creatingRenewLink.value = false
   }
 }
 
@@ -65,6 +73,7 @@ onMounted(load)
     <section v-else-if="item" class="card">
       <p class="badge">{{ item.subscription.status }}</p>
       <h1>Подписка {{ item.tariff.title }}</h1>
+      <p v-if="isTelegramSubscriptionPath" class="note">Страница открыта по Telegram ID: {{ telegramId }}</p>
 
       <div class="grid">
         <div>
@@ -88,15 +97,24 @@ onMounted(load)
 
       <div class="actions">
         <button class="secondary" @click="copyLink">Скопировать ссылку</button>
-        <button class="primary" :disabled="renewing" @click="renew">
-          {{ renewing ? 'Продлеваем...' : 'Продлить с тем же лимитом' }}
+        <button class="primary" :disabled="creatingRenewLink" @click="createRenewLink">
+          {{ creatingRenewLink ? 'Готовим ссылку...' : 'Продлить в Telegram-боте' }}
         </button>
       </div>
 
       <p class="note">
-        При продлении лимит трафика не вводится заново. Backend автоматически берёт текущий лимит: {{ trafficGB }} GB.
+        При продлении лимит трафика не вводится заново. Бот подтянет текущий лимит: {{ trafficGB }} GB.
       </p>
       <p v-if="error" class="error">{{ error }}</p>
+
+      <div v-if="checkout" class="checkout">
+        <b>Ссылка продления готова</b>
+        <p>{{ checkout.note }}</p>
+        <p>Payload для бота: <code>{{ checkout.start_payload }}</code></p>
+        <a class="telegram" :href="checkout.telegram_bot_url" target="_blank" rel="noreferrer">
+          Открыть Telegram-бота
+        </a>
+      </div>
     </section>
   </main>
 </template>
@@ -112,10 +130,13 @@ h1 { font-size: 40px; margin: 18px 0 24px; }
 .grid span, .linkbox span, .note { color: #94a3b8; }
 .grid b { font-size: 26px; }
 .linkbox { display: grid; gap: 8px; margin-top: 18px; }
-code { display: block; overflow: auto; background: #020617; border: 1px solid #334155; border-radius: 14px; padding: 14px; color: #c4b5fd; }
+code { display: inline-block; overflow: auto; background: #020617; border: 1px solid #334155; border-radius: 10px; padding: 4px 8px; color: #c4b5fd; }
+.linkbox code { display: block; border-radius: 14px; padding: 14px; }
 .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
-button { border: 0; border-radius: 16px; padding: 14px 18px; font-weight: 800; cursor: pointer; }
-.primary { background: #60a5fa; color: #020617; }
+button, .telegram { border: 0; border-radius: 16px; padding: 14px 18px; font-weight: 800; cursor: pointer; text-decoration: none; }
+.primary, .telegram { background: #60a5fa; color: #020617; }
 .secondary { background: #1f2937; color: #e5e7eb; }
 .error { color: #fca5a5; }
+.checkout { display: grid; gap: 10px; background: #052e16; border: 1px solid #166534; border-radius: 18px; padding: 18px; margin-top: 18px; color: #bbf7d0; }
+.checkout p { margin: 0; }
 </style>

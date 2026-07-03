@@ -13,29 +13,38 @@ func NewSiteHandler(services *service.Services) *SiteHandler {
 	return &SiteHandler{services: services}
 }
 
-func (h *SiteHandler) PurchaseSubscription(w http.ResponseWriter, r *http.Request) {
-	var input domain.SitePurchaseInput
-	if err := DecodeJSON(r, &input); err != nil {
-		WriteError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	item, err := h.services.Subscriptions.PurchaseFromSite(r.Context(), input)
+func (h *SiteHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.services.Site.GetConfig(r.Context())
 	if err != nil {
 		WriteDomainError(w, err)
 		return
 	}
-	WriteJSON(w, http.StatusCreated, item)
+	WriteJSON(w, http.StatusOK, cfg)
 }
 
-func (h *SiteHandler) RenewSubscription(w http.ResponseWriter, r *http.Request) {
-	var input domain.SiteRenewInput
+func (h *SiteHandler) CreatePurchaseCheckoutLink(w http.ResponseWriter, r *http.Request) {
+	var input domain.SitePurchaseLinkInput
 	if err := DecodeJSON(r, &input); err != nil {
 		WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	item, err := h.services.Subscriptions.RenewFromSite(r.Context(), input)
+	item, err := h.services.Site.CreatePurchaseLink(r.Context(), input)
+	if err != nil {
+		WriteDomainError(w, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, item)
+}
+
+func (h *SiteHandler) CreateRenewCheckoutLink(w http.ResponseWriter, r *http.Request) {
+	var input domain.SiteRenewLinkInput
+	if err := DecodeJSON(r, &input); err != nil {
+		WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	item, err := h.services.Site.CreateRenewLink(r.Context(), input)
 	if err != nil {
 		WriteDomainError(w, err)
 		return

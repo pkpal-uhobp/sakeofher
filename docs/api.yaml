@@ -1,39 +1,30 @@
 openapi: 3.0.3
 info:
   title: SakeOfHer API
-  version: 0.2.0
+  version: 0.4.0
   description: |
-    API проекта SakeOfHer для сайтного MVP без механики платежей.
+    API проекта SakeOfHer для сайтного MVP.
 
-    Сейчас реализованы:
-    - health-check;
-    - получение тарифов;
-    - создание/получение пользователя по Telegram ID;
-    - покупка подписки с ручным лимитом трафика;
-    - продление подписки с автоматическим подтягиванием прошлого лимита;
-    - публичное получение подписки по public_token.
+    Endpoint-ы сделаны ресурсными, без role-prefix вроде `/admin`, `/bot`, `/site`.
+
+    В этой версии сайт не создаёт платёж и не активирует подписку напрямую.
+    Сайт только формирует Telegram deep-link с параметрами покупки или продления.
+    Оплата и финальная активация выполняются на стороне Telegram-бота.
 servers:
   - url: http://localhost:8080
     description: Local API
-  - url: https://api.example.com
-    description: Production API placeholder
 tags:
   - name: System
-    description: Системные endpoint'ы
   - name: Tariffs
-    description: Тарифы
-  - name: Site subscriptions
-    description: Сайтная механика покупки и продления подписок без оплат
-  - name: Public subscriptions
-    description: Публичное получение подписки по токену
-  - name: Bot internal
-    description: Внутренние endpoint'ы для будущего Telegram-бота
+  - name: Checkout
+  - name: Subscriptions
+  - name: Users
+  - name: Auth
 paths:
   /api/v1/health:
     get:
       tags: [System]
       summary: Проверить, что API работает
-      operationId: healthCheck
       responses:
         '200':
           description: API работает
@@ -41,39 +32,182 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
-              example:
-                status: ok
+
+
+  /api/v1/auth/telegram/oauth/start:
+    get:
+      tags: [Auth]
+      summary: Начать Telegram OAuth 2.0 / OIDC вход
+      description: |
+        Создаёт state, PKCE verifier и nonce в HttpOnly cookies, затем редиректит пользователя на Telegram OAuth.
+      responses:
+        '302':
+          description: Redirect to Telegram OAuth
+        '200':
+          description: "JSON с auth_url, если передать Accept: application/json или ?format=json"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramOAuthStart'
+
+  /api/v1/auth/telegram/oauth/url:
+    get:
+      tags: [Auth]
+      summary: Получить URL для Telegram OAuth 2.0 / OIDC
+      responses:
+        '200':
+          description: Telegram OAuth URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramOAuthStart'
+
+  /api/v1/auth/telegram/oauth/callback:
+    get:
+      tags: [Auth]
+      summary: Callback Telegram OAuth 2.0 / OIDC
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to frontend auth success page
+        '200':
+          description: "JSON-сессия, если передать Accept: application/json"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Получить текущего пользователя по access token/cookie
+      responses:
+        '200':
+          description: Текущий пользователь
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMe'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Выйти и очистить auth-cookie
+      responses:
+        '200':
+          description: OK
 
   /api/v1/tariffs:
     get:
       tags: [Tariffs]
       summary: Получить активные тарифы с ценами
-      operationId: listTariffs
       responses:
         '200':
-          description: Список активных тарифов
+          description: Список тарифов
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: '#/components/schemas/TariffWithPrices'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
 
-  /api/v1/public/subscriptions/{public_token}:
+  /api/v1/config:
     get:
-      tags: [Public subscriptions]
+      tags: [Checkout]
+      summary: Получить настройки сайта
+      description: Возвращает username Telegram-бота и базовую ссылку на него.
+      responses:
+        '200':
+          description: Настройки сайта
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteConfig'
+
+  /api/v1/checkout/purchase:
+    post:
+      tags: [Checkout]
+      summary: Сформировать ссылку на покупку в Telegram-боте
+      description: |
+        Сайт не создаёт подписку и не принимает оплату.
+        Endpoint валидирует тариф и лимит трафика, затем возвращает deep-link в Telegram-бот.
+
+        Payload имеет вид `buy_t{tariff_id}_g{traffic_limit_gb}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SitePurchaseLinkInput'
+            example:
+              tariff_id: 1
+              traffic_limit_gb: 500
+      responses:
+        '200':
+          description: Ссылка в Telegram-бот
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteCheckoutLink'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/checkout/renew:
+    post:
+      tags: [Checkout]
+      summary: Сформировать ссылку на продление в Telegram-боте
+      description: |
+        При продлении лимит трафика не передаётся.
+        Backend берёт лимит из текущей подписки и возвращает Telegram deep-link.
+
+        Payload имеет вид `renew_{public_token}`.
+        Бот по этому public_token сможет подтянуть тариф и текущий лимит.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiteRenewLinkInput'
+            example:
+              public_token: 6d1f4e9c2a7b4d1fb9e0f1a2c3d4e5f6aabbccdd0011
+      responses:
+        '200':
+          description: Ссылка продления в Telegram-боте
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteCheckoutLink'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/subscriptions/public/{public_token}:
+    get:
+      tags: [Subscriptions]
       summary: Получить публичную информацию о подписке
-      operationId: getPublicSubscription
       parameters:
         - name: public_token
           in: path
           required: true
-          description: Публичный токен подписки
           schema:
             type: string
-          example: 6d1f4e9c2a7b4d1fb9e0f1a2c3d4e5f6
       responses:
         '200':
           description: Данные подписки
@@ -83,43 +217,66 @@ paths:
                 $ref: '#/components/schemas/PublicSubscription'
         '404':
           $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
 
-  /api/v1/bot/start:
+
+  /api/v1/subscriptions/path/{subscription_path}/telegram/{telegram_id}:
+    get:
+      tags: [Subscriptions]
+      summary: Получить публичную страницу подписки по telegram_id
+      description: |
+        Новый формат для страницы подписки вида:
+        `https://0wn3d.h4ck.me/L0mENeiofHjdxC57/sub/970706613`.
+
+        `subscription_path` должен совпадать с env `SUBSCRIPTION_PATH_SECRET`.
+        `telegram_id` — Telegram ID пользователя.
+      parameters:
+        - name: subscription_path
+          in: path
+          required: true
+          schema:
+            type: string
+          example: L0mENeiofHjdxC57
+        - name: telegram_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 970706613
+      responses:
+        '200':
+          description: Данные последней подписки пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicSubscription'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/users/telegram:
     post:
-      tags: [Bot internal]
-      summary: Создать или получить пользователя по Telegram данным
-      operationId: botStart
+      tags: [Users]
+      summary: Создать или обновить пользователя по Telegram-данным
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/TelegramUserInput'
-            example:
-              telegram_id: 123456
-              telegram_username: test_user
-              telegram_first_name: Test
-              telegram_last_name: User
-              language_code: ru
       responses:
         '200':
-          description: Пользователь создан или найден
+          description: Пользователь
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
 
-  /api/v1/bot/users/{telegram_id}/subscription:
+  /api/v1/subscriptions/by-telegram/{telegram_id}:
     get:
-      tags: [Bot internal]
-      summary: Получить активную подписку пользователя по Telegram ID
-      operationId: getBotUserSubscription
+      tags: [Subscriptions]
+      summary: Получить активную подписку пользователя по telegram_id
       parameters:
         - name: telegram_id
           in: path
@@ -127,131 +284,74 @@ paths:
           schema:
             type: integer
             format: int64
-            minimum: 1
-          example: 123456
       responses:
         '200':
-          description: Активная подписка пользователя
+          description: Активная подписка
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PublicSubscription'
-        '400':
-          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /api/v1/site/subscriptions/purchase:
-    post:
-      tags: [Site subscriptions]
-      summary: Купить подписку без платежей с ручным лимитом трафика
-      description: |
-        Сайтный MVP endpoint без реальной оплаты.
-
-        При покупке лимит трафика передаётся вручную через `traffic_limit_gb`.
-        Если у пользователя уже есть активная подписка, срок суммируется.
-        Новый лимит трафика берётся из запроса.
-      operationId: purchaseSubscriptionFromSite
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SitePurchaseInput'
-            example:
-              telegram_id: 123456
-              telegram_username: test_user
-              telegram_first_name: Test
-              telegram_last_name: User
-              language_code: ru
-              alias: client-001
-              tariff_id: 1
-              traffic_limit_gb: 500
-      responses:
-        '201':
-          description: Подписка создана или продлена
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PublicSubscription'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /api/v1/site/subscriptions/renew:
-    post:
-      tags: [Site subscriptions]
-      summary: Продлить подписку без указания лимита трафика
-      description: |
-        При продлении лимит трафика не передаётся.
-        Backend автоматически берёт лимит из текущей или последней подписки.
-        Срок подписки суммируется: новая дата окончания считается от текущего `expires_at`, если подписка ещё активна.
-      operationId: renewSubscriptionFromSite
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SiteRenewInput'
-            examples:
-              by_public_token:
-                summary: Продление по public_token
-                value:
-                  public_token: 6d1f4e9c2a7b4d1fb9e0f1a2c3d4e5f6
-              by_telegram_id:
-                summary: Продление по telegram_id
-                value:
-                  telegram_id: 123456
-      responses:
-        '200':
-          description: Подписка продлена
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PublicSubscription'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
 
 components:
   responses:
     BadRequest:
-      description: Ошибка валидации или некорректный запрос
+      description: Некорректный запрос
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-          example:
-            error: invalid input
     NotFound:
       description: Сущность не найдена
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-          example:
-            error: not found
-    InternalServerError:
-      description: Внутренняя ошибка сервера
+    Unauthorized:
+      description: Нет авторизации
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-          example:
-            error: internal server error
 
   schemas:
+
+    TelegramOAuthStart:
+      type: object
+      properties:
+        auth_url:
+          type: string
+          example: https://oauth.telegram.org/auth?client_id=123&response_type=code
+        state:
+          type: string
+
+    AuthSession:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/User'
+        is_admin:
+          type: boolean
+
+    AuthMe:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        is_admin:
+          type: boolean
+
     HealthResponse:
       type: object
-      required: [status]
       properties:
         status:
           type: string
@@ -259,118 +359,92 @@ components:
 
     ErrorResponse:
       type: object
-      required: [error]
       properties:
         error:
           type: string
           example: invalid input
 
-    UserStatus:
-      type: string
-      enum: [active, blocked, deleted]
-      example: active
-
-    RemnaStatus:
-      type: string
-      enum: [not_created, active, disabled, deleted]
-      example: not_created
-
-    SubscriptionStatus:
-      type: string
-      enum: [active, expired, cancelled]
-      example: active
-
-    PeriodStatus:
-      type: string
-      enum: [active, traffic_exhausted, finished]
-      example: active
-
-    PaymentProvider:
-      type: string
-      enum: [telegram_stars, tribute, crypto_bot]
-      example: tribute
-
-    PaymentMethod:
-      type: string
-      enum: [stars, rub, crypto]
-      example: rub
-
-    User:
+    SiteConfig:
       type: object
-      required:
-        - id
-        - telegram_id
-        - status
-        - remna_status
-        - created_at
-        - updated_at
       properties:
-        id:
+        telegram_bot_username:
+          type: string
+          example: sakeofher_bot
+        telegram_bot_url:
+          type: string
+          example: https://t.me/sakeofher_bot
+        payments_location:
+          type: string
+          example: telegram_bot
+        public_url:
+          type: string
+          example: https://0wn3d.h4ck.me
+        subscription_path_secret:
+          type: string
+          example: L0mENeiofHjdxC57
+        subscription_url_pattern:
+          type: string
+          example: https://0wn3d.h4ck.me/L0mENeiofHjdxC57/sub/{telegram_id}
+
+    SitePurchaseLinkInput:
+      type: object
+      required: [tariff_id, traffic_limit_gb]
+      properties:
+        tariff_id:
           type: integer
           format: int64
           example: 1
-        telegram_id:
+        traffic_limit_gb:
           type: integer
           format: int64
-          example: 123456
-        telegram_username:
+          example: 500
+
+    SiteRenewLinkInput:
+      type: object
+      required: [public_token]
+      properties:
+        public_token:
+          type: string
+          example: 6d1f4e9c2a7b4d1fb9e0f1a2c3d4e5f6aabbccdd0011
+
+    SiteCheckoutLink:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [purchase, renew]
+          example: purchase
+        start_payload:
+          type: string
+          example: buy_t1_g500
+        telegram_bot_url:
+          type: string
+          example: https://t.me/sakeofher_bot?start=buy_t1_g500
+        telegram_bot_username:
+          type: string
+          example: sakeofher_bot
+        tariff:
+          $ref: '#/components/schemas/Tariff'
+        traffic_limit_gb:
+          type: integer
+          format: int64
+          example: 500
+        traffic_limit_bytes:
+          type: integer
+          format: int64
+          example: 536870912000
+        public_token:
           type: string
           nullable: true
-          example: test_user
-        telegram_first_name:
-          type: string
-          nullable: true
-          example: Test
-        telegram_last_name:
-          type: string
-          nullable: true
-          example: User
-        language_code:
-          type: string
-          nullable: true
-          example: ru
-        alias:
-          type: string
-          nullable: true
-          example: client-001
-        remna_uuid:
-          type: string
-          nullable: true
-          example: 5e8f4c33-7a31-4d79-8c4a-2c1847ec2f89
-        remna_username:
-          type: string
-          nullable: true
-          example: tg_123456
-        subscription_url:
-          type: string
-          nullable: true
-          example: https://panel.example.com/sub/example
-        status:
-          $ref: '#/components/schemas/UserStatus'
-        remna_status:
-          $ref: '#/components/schemas/RemnaStatus'
-        disabled_at:
+        current_expires_at:
           type: string
           format: date-time
           nullable: true
-        delete_after:
+        next_expires_at_preview:
           type: string
           format: date-time
-          nullable: true
-        deleted_at:
+        note:
           type: string
-          format: date-time
-          nullable: true
-        last_seen_at:
-          type: string
-          format: date-time
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
 
     TelegramUserInput:
       type: object
@@ -379,138 +453,99 @@ components:
         telegram_id:
           type: integer
           format: int64
-          minimum: 1
-          example: 123456
         telegram_username:
           type: string
           nullable: true
-          example: test_user
         telegram_first_name:
           type: string
           nullable: true
-          example: Test
         telegram_last_name:
           type: string
           nullable: true
-          example: User
         language_code:
           type: string
           nullable: true
-          example: ru
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        telegram_id:
+          type: integer
+          format: int64
+        telegram_username:
+          type: string
+          nullable: true
+        telegram_first_name:
+          type: string
+          nullable: true
+        telegram_last_name:
+          type: string
+          nullable: true
+        remna_status:
+          type: string
 
     Tariff:
       type: object
-      required:
-        - id
-        - code
-        - title
-        - duration_days
-        - period_days
-        - traffic_limit_bytes
-        - is_active
-        - sort_order
-        - created_at
-        - updated_at
       properties:
         id:
           type: integer
           format: int64
-          example: 1
         code:
           type: string
-          example: vpn_1m_300gb
         title:
           type: string
-          example: 1 месяц
         description:
           type: string
           nullable: true
-          example: VPN на 1 месяц
         duration_days:
           type: integer
-          example: 30
         period_days:
           type: integer
-          example: 30
         traffic_limit_bytes:
           type: integer
           format: int64
-          example: 322122547200
         is_active:
           type: boolean
-          example: true
         sort_order:
           type: integer
-          example: 10
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
 
     TariffPrice:
       type: object
-      required:
-        - id
-        - tariff_id
-        - provider
-        - payment_method
-        - currency
-        - accepted_assets
-        - is_active
-        - sort_order
-        - created_at
-        - updated_at
       properties:
         id:
           type: integer
           format: int64
-          example: 1
         tariff_id:
           type: integer
           format: int64
-          example: 1
         provider:
-          $ref: '#/components/schemas/PaymentProvider'
+          type: string
         payment_method:
-          $ref: '#/components/schemas/PaymentMethod'
+          type: string
         currency:
           type: string
-          example: RUB
         amount_minor:
           type: integer
           format: int64
           nullable: true
-          example: 7000
         stars_amount:
           type: integer
           format: int64
           nullable: true
-          example: 50
         accepted_assets:
           type: array
           items:
             type: string
-          example: [USDT, TON]
         is_active:
           type: boolean
-          example: true
-        sort_order:
-          type: integer
-          example: 10
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
 
     TariffWithPrices:
       allOf:
         - $ref: '#/components/schemas/Tariff'
         - type: object
-          required: [prices]
           properties:
             prices:
               type: array
@@ -519,46 +554,19 @@ components:
 
     Subscription:
       type: object
-      required:
-        - id
-        - user_id
-        - status
-        - started_at
-        - expires_at
-        - current_period_start
-        - current_period_end
-        - traffic_limit_bytes
-        - traffic_used_bytes
-        - period_status
-        - public_token
-        - notified_3_days
-        - notified_1_day
-        - notified_expired
-        - traffic_80_notified
-        - traffic_95_notified
-        - traffic_exhausted_notified
-        - created_at
-        - updated_at
       properties:
         id:
           type: integer
           format: int64
-          example: 1
         user_id:
           type: integer
           format: int64
-          example: 1
-        last_payment_id:
-          type: integer
-          format: int64
-          nullable: true
         tariff_id:
           type: integer
           format: int64
           nullable: true
-          example: 1
         status:
-          $ref: '#/components/schemas/SubscriptionStatus'
+          type: string
         started_at:
           type: string
           format: date-time
@@ -574,56 +582,16 @@ components:
         traffic_limit_bytes:
           type: integer
           format: int64
-          example: 536870912000
         traffic_used_bytes:
           type: integer
           format: int64
-          example: 0
         period_status:
-          $ref: '#/components/schemas/PeriodStatus'
+          type: string
         public_token:
           type: string
-          example: 6d1f4e9c2a7b4d1fb9e0f1a2c3d4e5f6
-        last_remna_check_at:
-          type: string
-          format: date-time
-          nullable: true
-        last_expire_notification_at:
-          type: string
-          format: date-time
-          nullable: true
-        last_traffic_notification_at:
-          type: string
-          format: date-time
-          nullable: true
-        notified_3_days:
-          type: boolean
-          example: false
-        notified_1_day:
-          type: boolean
-          example: false
-        notified_expired:
-          type: boolean
-          example: false
-        traffic_80_notified:
-          type: boolean
-          example: false
-        traffic_95_notified:
-          type: boolean
-          example: false
-        traffic_exhausted_notified:
-          type: boolean
-          example: false
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
 
     PublicSubscription:
       type: object
-      required: [subscription, user, tariff]
       properties:
         subscription:
           $ref: '#/components/schemas/Subscription'
@@ -634,65 +602,3 @@ components:
         subscription_url:
           type: string
           nullable: true
-          example: https://panel.example.com/sub/example
-
-    SitePurchaseInput:
-      type: object
-      required:
-        - telegram_id
-        - tariff_id
-        - traffic_limit_gb
-      properties:
-        telegram_id:
-          type: integer
-          format: int64
-          minimum: 1
-          example: 123456
-        telegram_username:
-          type: string
-          nullable: true
-          example: test_user
-        telegram_first_name:
-          type: string
-          nullable: true
-          example: Test
-        telegram_last_name:
-          type: string
-          nullable: true
-          example: User
-        language_code:
-          type: string
-          nullable: true
-          example: ru
-        alias:
-          type: string
-          nullable: true
-          example: client-001
-        tariff_id:
-          type: integer
-          format: int64
-          minimum: 1
-          example: 1
-        traffic_limit_gb:
-          type: integer
-          format: int64
-          minimum: 1
-          example: 500
-
-    SiteRenewInput:
-      type: object
-      description: Нужно передать либо public_token, либо telegram_id. Лимит трафика не передаётся и подтягивается автоматически.
-      properties:
-        telegram_id:
-          type: integer
-          format: int64
-          minimum: 1
-          example: 123456
-        public_token:
-          type: string
-          example: 6d1f4e9c2a7b4d1fb9e0f1a2c3d4e5f6
-        tariff_id:
-          type: integer
-          format: int64
-          nullable: true
-          example: 1

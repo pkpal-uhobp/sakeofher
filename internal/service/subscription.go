@@ -36,6 +36,13 @@ func (s *subscriptionService) GetActiveByTelegramID(ctx context.Context, telegra
 	return s.repo.Subscriptions.GetActivePublicByTelegramID(ctx, telegramID)
 }
 
+func (s *subscriptionService) GetLatestByTelegramID(ctx context.Context, telegramID int64) (*domain.PublicSubscription, error) {
+	if telegramID <= 0 {
+		return nil, domain.ErrInvalidInput
+	}
+	return s.repo.Subscriptions.GetLatestPublicByTelegramID(ctx, telegramID)
+}
+
 func (s *subscriptionService) ActivateAfterPayment(ctx context.Context, paymentID int64) error {
 	payment, err := s.repo.Payments.GetByID(ctx, paymentID)
 	if err != nil {

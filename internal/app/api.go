@@ -17,7 +17,7 @@ func RunAPI(ctx context.Context) error {
 	}
 	defer c.Close()
 
-	router := httptransport.NewRouter(c.Services, c.Config.App.SubscriptionPathSecret, c.Config.Telegram.OAuthSuccessRedirectURL, c.Config.JWT.Secret, c.Log)
+	router := httptransport.NewRouter(c.Services, c.Config.App.SubscriptionPathSecret, c.Config.JWT.Secret, c.Log)
 	srv := &http.Server{Addr: c.Config.HTTP.Addr, Handler: router}
 
 	c.Log.Info("api started", zap.String("addr", c.Config.HTTP.Addr))

@@ -8,6 +8,8 @@ import (
 
 type RemnawaveGateway interface {
 	CreateUser(ctx context.Context, req domain.CreateRemnaUserRequest) (*domain.RemnaUser, error)
+	UpdateUser(ctx context.Context, req domain.UpdateRemnaUserRequest) (*domain.RemnaUser, error)
+	GetUser(ctx context.Context, remnaUUID string) (*domain.RemnaUser, error)
 	EnableUser(ctx context.Context, remnaUUID string) error
 	DisableUser(ctx context.Context, remnaUUID string) error
 	DeleteUser(ctx context.Context, remnaUUID string) error
@@ -23,16 +25,9 @@ type TelegramGateway interface {
 	SendMessage(ctx context.Context, telegramID int64, text string) error
 }
 
-type TelegramOAuthGateway interface {
-	BuildAuthURL(state string, codeChallenge string, nonce string) string
-	ExchangeCode(ctx context.Context, req domain.TelegramOIDCTokenRequest) (*domain.TelegramOIDCTokenResponse, error)
-	VerifyIDToken(ctx context.Context, idToken string, expectedNonce string) (*domain.TelegramOIDCClaims, error)
-}
-
 type Gateways struct {
-	Remnawave     RemnawaveGateway
-	Tribute       TributeGateway
-	CryptoBot     CryptoBotGateway
-	Telegram      TelegramGateway
-	TelegramOAuth TelegramOAuthGateway
+	Remnawave RemnawaveGateway
+	Tribute   TributeGateway
+	CryptoBot CryptoBotGateway
+	Telegram  TelegramGateway
 }

@@ -16,6 +16,7 @@ type Config struct {
 	HTTP      HTTPConfig
 	Postgres  repoPool.Config
 	JWT       JWTConfig
+	Admin     AdminConfig
 	Telegram  TelegramConfig
 	Remnawave RemnawaveConfig
 	Tribute   TributeConfig
@@ -39,16 +40,16 @@ type JWTConfig struct {
 	RefreshTTL time.Duration `envconfig:"JWT_REFRESH_TTL" default:"720h"`
 }
 
+type AdminConfig struct {
+	Username string `envconfig:"ADMIN_USERNAME" default:"admin"`
+	Password string `envconfig:"ADMIN_PASSWORD" default:""`
+}
+
 type TelegramConfig struct {
-	BotToken                string        `envconfig:"TELEGRAM_BOT_TOKEN"`
-	BotUsername             string        `envconfig:"TELEGRAM_BOT_USERNAME" default:""`
-	OAuthClientID           string        `envconfig:"TELEGRAM_OAUTH_CLIENT_ID" default:""`
-	OAuthClientSecret       string        `envconfig:"TELEGRAM_OAUTH_CLIENT_SECRET" default:""`
-	OAuthRedirectURL        string        `envconfig:"TELEGRAM_OAUTH_REDIRECT_URL" default:"http://localhost:5173/api/v1/auth/telegram/oauth/callback"`
-	OAuthSuccessRedirectURL string        `envconfig:"TELEGRAM_OAUTH_SUCCESS_REDIRECT_URL" default:"http://localhost:5173/auth/success"`
-	OAuthTimeout            time.Duration `envconfig:"TELEGRAM_OAUTH_TIMEOUT" default:"15s"`
-	AdminIDs                []int64       `ignored:"true"`
-	RawAdminIDs             string        `envconfig:"TELEGRAM_ADMIN_IDS" default:""`
+	BotToken      string  `envconfig:"TELEGRAM_BOT_TOKEN"`
+	BotUsername   string  `envconfig:"TELEGRAM_BOT_USERNAME" default:""`
+	AdminIDs      []int64 `ignored:"true"`
+	RawAdminIDs   string  `envconfig:"TELEGRAM_ADMIN_IDS" default:""`
 }
 
 type RemnawaveConfig struct {
@@ -94,6 +95,9 @@ func Load() (Config, error) {
 	cfg.Postgres = pg
 	if err := envconfig.Process("", &cfg.JWT); err != nil {
 		return Config{}, fmt.Errorf("process jwt config: %w", err)
+	}
+	if err := envconfig.Process("", &cfg.Admin); err != nil {
+		return Config{}, fmt.Errorf("process admin config: %w", err)
 	}
 	if err := envconfig.Process("", &cfg.Telegram); err != nil {
 		return Config{}, fmt.Errorf("process telegram config: %w", err)

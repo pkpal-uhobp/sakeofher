@@ -1,46 +1,97 @@
-<script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
-import { api } from '../../api/client'
-
-const loading = ref(true)
-const error = ref('')
-const me = ref<any>(null)
-
-onMounted(async () => {
-  try {
-    const { data } = await api.get('/auth/me')
-    me.value = data
-  } catch (e: any) {
-    error.value = e?.response?.data?.error || e.message || 'Не удалось проверить авторизацию'
-  } finally {
-    loading.value = false
-  }
-})
-</script>
-
 <template>
-  <main class="page">
+  <main class="auth-success">
     <section class="card">
-      <p class="badge">Auth</p>
-      <h1>Авторизация</h1>
-      <p v-if="loading">Проверяем сессию...</p>
-      <p v-else-if="error" class="error">{{ error }}</p>
-      <div v-else>
-        <p class="ok">Вы вошли как Telegram ID: {{ me.user.telegram_id }}</p>
-        <p>Админ: {{ me.is_admin ? 'да' : 'нет' }}</p>
-        <RouterLink class="telegram" to="/admin">Перейти в админку</RouterLink>
-      </div>
+      <h1>{{ title }}</h1>
+      <p>{{ message }}</p>
+
+      <RouterLink v-if="showHomeLink" to="/" class="home-link">
+        На главную
+      </RouterLink>
     </section>
   </main>
 </template>
 
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
+import { api } from '../../api/client'
+
+const router = useRouter()
+const title = ref('Проверяем доступ…')
+const message = ref('Пожалуйста, подождите.')
+const showHomeLink = ref(false)
+
+onMounted(async () => {
+  try {
+    const response = await api.get('/auth/me')
+    const isAdmin = Boolean(response.data?.is_admin)
+
+    if (!isAdmin) {
+      title.value = 'Вход выполнен, но прав администратора нет'
+      message.value = 'Лендинг остаётся доступным, но админ-панель открыта только администраторам.'
+      showHomeLink.value = true
+
+      setTimeout(() => {
+        router.replace('/')
+      }, 1600)
+      return
+    }
+
+    title.value = 'Вход выполнен'
+    message.value = 'Перенаправляем в админ-панель.'
+
+    setTimeout(() => {
+      router.replace('/admin')
+    }, 500)
+  } catch {
+    title.value = 'Авторизация не удалась'
+    message.value = 'Попробуйте войти ещё раз.'
+    setTimeout(() => {
+      router.replace({ path: '/login', query: { reason: 'auth_required' } })
+    }, 900)
+  }
+})
+</script>
+
 <style scoped>
-.page { max-width: 760px; margin: 0 auto; padding: 64px 20px; }
-.card { background: #111827; border: 1px solid #263244; border-radius: 24px; padding: 32px; box-shadow: 0 24px 80px rgba(0,0,0,.25); }
-.badge { display: inline-block; padding: 8px 12px; border: 1px solid #334155; border-radius: 999px; color: #93c5fd; }
-h1 { font-size: 42px; margin: 18px 0; }
-.error { color: #fca5a5; }
-.ok { color: #bbf7d0; }
-.telegram { display: inline-block; margin-top: 18px; border: 0; border-radius: 16px; background: #60a5fa; color: #020617; padding: 15px 18px; font-weight: 800; cursor: pointer; text-decoration: none; }
+.auth-success {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background:
+    radial-gradient(circle at top left, rgba(14, 165, 233, 0.2), transparent 32%),
+    #0f172a;
+  color: #f8fafc;
+}
+
+.card {
+  width: min(440px, 100%);
+  padding: 28px;
+  border-radius: 24px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+}
+
+h1 {
+  margin: 0 0 10px;
+  letter-spacing: -0.04em;
+}
+
+p {
+  margin: 0;
+  color: #cbd5e1;
+  line-height: 1.55;
+}
+
+.home-link {
+  display: inline-flex;
+  margin-top: 18px;
+  color: #93c5fd;
+  text-decoration: none;
+}
+
+.home-link:hover {
+  color: #ffffff;
+}
 </style>

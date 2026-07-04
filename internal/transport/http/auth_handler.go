@@ -10,100 +10,32 @@ import (
 	"sakeofher/internal/service"
 )
 
-const (
-	telegramOAuthStateCookie    = "sakeofher_tg_oauth_state"
-	telegramOAuthVerifierCookie = "sakeofher_tg_oauth_verifier"
-	telegramOAuthNonceCookie    = "sakeofher_tg_oauth_nonce"
-	accessTokenCookie           = "sakeofher_access_token"
-)
+const accessTokenCookie = "sakeofher_access_token"
 
 type AuthHandler struct {
-	services           *service.Services
-	successRedirectURL string
-	jwtSecret          string
+	services  *service.Services
+	jwtSecret string
 }
 
-func NewAuthHandler(services *service.Services, successRedirectURL string, jwtSecret string) *AuthHandler {
-	return &AuthHandler{services: services, successRedirectURL: successRedirectURL, jwtSecret: jwtSecret}
+func NewAuthHandler(services *service.Services, jwtSecret string) *AuthHandler {
+	return &AuthHandler{services: services, jwtSecret: jwtSecret}
 }
 
-func (h *AuthHandler) TelegramOAuthStart(w http.ResponseWriter, r *http.Request) {
-	start, state, verifier, nonce, err := h.services.Auth.StartTelegramOAuth(r.Context())
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var input domain.LoginInput
+	if err := DecodeJSON(r, &input); err != nil {
+		WriteError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+
+	session, err := h.services.Auth.Login(r.Context(), input)
 	if err != nil {
 		WriteDomainError(w, err)
 		return
 	}
 
-	secure := isHTTPS(r)
-	setTempCookie(w, telegramOAuthStateCookie, state, secure)
-	setTempCookie(w, telegramOAuthVerifierCookie, verifier, secure)
-	setTempCookie(w, telegramOAuthNonceCookie, nonce, secure)
-
-	if wantsJSON(r) {
-		WriteJSON(w, http.StatusOK, start)
-		return
-	}
-	http.Redirect(w, r, start.AuthURL, http.StatusFound)
-}
-
-func (h *AuthHandler) TelegramOAuthURL(w http.ResponseWriter, r *http.Request) {
-	start, state, verifier, nonce, err := h.services.Auth.StartTelegramOAuth(r.Context())
-	if err != nil {
-		WriteDomainError(w, err)
-		return
-	}
-
-	secure := isHTTPS(r)
-	setTempCookie(w, telegramOAuthStateCookie, state, secure)
-	setTempCookie(w, telegramOAuthVerifierCookie, verifier, secure)
-	setTempCookie(w, telegramOAuthNonceCookie, nonce, secure)
-
-	WriteJSON(w, http.StatusOK, start)
-}
-
-func (h *AuthHandler) TelegramOAuthCallback(w http.ResponseWriter, r *http.Request) {
-	stateCookie, err := r.Cookie(telegramOAuthStateCookie)
-	if err != nil {
-		WriteError(w, http.StatusUnauthorized, "telegram oauth state cookie is missing")
-		return
-	}
-	verifierCookie, err := r.Cookie(telegramOAuthVerifierCookie)
-	if err != nil {
-		WriteError(w, http.StatusUnauthorized, "telegram oauth verifier cookie is missing")
-		return
-	}
-	nonceCookie, err := r.Cookie(telegramOAuthNonceCookie)
-	if err != nil {
-		WriteError(w, http.StatusUnauthorized, "telegram oauth nonce cookie is missing")
-		return
-	}
-
-	input := domain.TelegramOAuthCallbackInput{
-		Code:          r.URL.Query().Get("code"),
-		State:         r.URL.Query().Get("state"),
-		ExpectedState: stateCookie.Value,
-		CodeVerifier:  verifierCookie.Value,
-		Nonce:         nonceCookie.Value,
-	}
-
-	session, err := h.services.Auth.FinishTelegramOAuth(r.Context(), input)
-	if err != nil {
-		WriteDomainError(w, err)
-		return
-	}
-
-	secure := isHTTPS(r)
-	clearCookie(w, telegramOAuthStateCookie, secure)
-	clearCookie(w, telegramOAuthVerifierCookie, secure)
-	clearCookie(w, telegramOAuthNonceCookie, secure)
-	setAccessCookie(w, session.AccessToken, time.Until(session.ExpiresAt), secure)
-
-	if wantsJSON(r) || h.successRedirectURL == "" {
-		WriteJSON(w, http.StatusOK, session)
-		return
-	}
-
-	http.Redirect(w, r, h.successRedirectURL, http.StatusFound)
+	setAccessCookie(w, session.AccessToken, time.Until(session.ExpiresAt), isHTTPS(r))
+	WriteJSON(w, http.StatusOK, session)
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
@@ -124,14 +56,13 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.services.Users.GetByTelegramID(r.Context(), claims.TelegramID)
-	if err != nil {
-		WriteDomainError(w, err)
-		return
+	username := claims.Username
+	if username == "" {
+		username = claims.Subject
 	}
 
 	WriteJSON(w, http.StatusOK, map[string]any{
-		"user":     user,
+		"username": username,
 		"is_admin": claims.IsAdmin,
 	})
 }
@@ -139,18 +70,6 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	clearCookie(w, accessTokenCookie, isHTTPS(r))
 	WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func setTempCookie(w http.ResponseWriter, name string, value string, secure bool) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     name,
-		Value:    value,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   600,
-	})
 }
 
 func setAccessCookie(w http.ResponseWriter, token string, ttl time.Duration, secure bool) {
@@ -179,10 +98,6 @@ func clearCookie(w http.ResponseWriter, name string, secure bool) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
-}
-
-func wantsJSON(r *http.Request) bool {
-	return strings.Contains(r.Header.Get("Accept"), "application/json") || r.URL.Query().Get("format") == "json"
 }
 
 func isHTTPS(r *http.Request) bool {

@@ -24,26 +24,45 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	expireTicker := time.NewTicker(s.cfg.ExpireInterval)
 	deleteTicker := time.NewTicker(s.cfg.DeleteDisabledInterval)
 	retryTicker := time.NewTicker(s.cfg.RetryActivationInterval)
+	syncUsageTicker := time.NewTicker(s.cfg.SyncUsageInterval)
+	resetTrafficTicker := time.NewTicker(s.cfg.ResetTrafficInterval)
+
 	defer expireTicker.Stop()
 	defer deleteTicker.Stop()
 	defer retryTicker.Stop()
+	defer syncUsageTicker.Stop()
+	defer resetTrafficTicker.Stop()
 
 	s.log.Info("worker scheduler started")
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+
 		case <-expireTicker.C:
 			if err := s.services.Workers.ExpireSubscriptions(ctx); err != nil {
 				s.log.Error("expire subscriptions failed", zap.Error(err))
 			}
+
 		case <-deleteTicker.C:
 			if err := s.services.Workers.DeleteOldDisabledUsers(ctx); err != nil {
 				s.log.Error("delete old disabled users failed", zap.Error(err))
 			}
+
 		case <-retryTicker.C:
 			if err := s.services.Workers.RetryFailedActivations(ctx); err != nil {
 				s.log.Error("retry failed activations failed", zap.Error(err))
+			}
+
+		case <-syncUsageTicker.C:
+			if err := s.services.Workers.SyncUsage(ctx); err != nil {
+				s.log.Error("sync remnawave usage failed", zap.Error(err))
+			}
+
+		case <-resetTrafficTicker.C:
+			if err := s.services.Workers.ResetTrafficPeriods(ctx); err != nil {
+				s.log.Error("reset traffic periods failed", zap.Error(err))
 			}
 		}
 	}

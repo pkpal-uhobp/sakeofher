@@ -14,7 +14,8 @@ import (
 
 type Claims struct {
 	Subject    string `json:"sub"`
-	TelegramID int64  `json:"telegram_id"`
+	Username   string `json:"username,omitempty"`
+	TelegramID int64  `json:"telegram_id,omitempty"`
 	IsAdmin    bool   `json:"is_admin"`
 	IssuedAt   int64  `json:"iat"`
 	ExpiresAt  int64  `json:"exp"`
@@ -73,6 +74,17 @@ func NewClaims(userID int64, telegramID int64, isAdmin bool, ttl time.Duration) 
 		IsAdmin:    isAdmin,
 		IssuedAt:   now.Unix(),
 		ExpiresAt:  now.Add(ttl).Unix(),
+	}
+}
+
+func NewAdminClaims(username string, ttl time.Duration) Claims {
+	now := time.Now()
+	return Claims{
+		Subject:   username,
+		Username:  username,
+		IsAdmin:   true,
+		IssuedAt:  now.Unix(),
+		ExpiresAt: now.Add(ttl).Unix(),
 	}
 }
 

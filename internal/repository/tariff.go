@@ -2,7 +2,9 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -10,38 +12,53 @@ import (
 	"sakeofher/internal/repository/tx"
 )
 
-type TariffRepository struct{ tx *tx.Manager }
+type TariffRepository struct {
+	tx *tx.Manager
+}
 
 func NewTariffRepository(txManager *tx.Manager) *TariffRepository {
 	return &TariffRepository{tx: txManager}
 }
 
 func (r *TariffRepository) ListActive(ctx context.Context) ([]domain.Tariff, error) {
+	return r.list(ctx, true)
+}
+
+func (r *TariffRepository) ListAll(ctx context.Context) ([]domain.Tariff, error) {
+	return r.list(ctx, false)
+}
+
+func (r *TariffRepository) list(ctx context.Context, onlyActive bool) ([]domain.Tariff, error) {
 	ctx, cancel := r.tx.WithTimeout(ctx)
 	defer cancel()
 
-	rows, err := r.tx.Querier(ctx).Query(ctx, `
-		SELECT id, code, title, description, duration_days, period_days, traffic_limit_bytes, is_active, sort_order, created_at, updated_at
-		FROM tariffs
-		WHERE is_active = true
-		ORDER BY sort_order ASC, duration_days ASC, id ASC
-	`)
+	where := ""
+	if onlyActive {
+		where = "WHERE is_active = true"
+	}
+
+	rows, err := r.tx.Querier(ctx).Query(
+		ctx,
+		baseTariffSelect()+" "+where+" ORDER BY sort_order ASC, duration_days ASC, id ASC",
+	)
 	if err != nil {
-		return nil, fmt.Errorf("list active tariffs: %w", err)
+		return nil, fmt.Errorf("list tariffs: %w", err)
 	}
 	defer rows.Close()
 
 	items := make([]domain.Tariff, 0)
 	for rows.Next() {
-		var t domain.Tariff
-		if err := rows.Scan(&t.ID, &t.Code, &t.Title, &t.Description, &t.DurationDays, &t.PeriodDays, &t.TrafficLimitBytes, &t.IsActive, &t.SortOrder, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan tariff: %w", err)
+		tariff, err := scanTariff(rows)
+		if err != nil {
+			return nil, err
 		}
-		items = append(items, t)
+		items = append(items, *tariff)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate tariffs: %w", err)
 	}
+
 	return items, nil
 }
 
@@ -51,8 +68,29 @@ func (r *TariffRepository) ListActiveWithPrices(ctx context.Context) ([]domain.T
 
 	rows, err := r.tx.Querier(ctx).Query(ctx, `
 		SELECT
-			t.id, t.code, t.title, t.description, t.duration_days, t.period_days, t.traffic_limit_bytes, t.is_active, t.sort_order, t.created_at, t.updated_at,
-			p.id, p.tariff_id, p.provider, p.payment_method, p.currency, p.amount_minor, p.stars_amount::bigint, p.accepted_assets, p.is_active, p.sort_order, p.created_at, p.updated_at
+			t.id,
+			t.code,
+			t.title,
+			t.description,
+			t.duration_days,
+			t.period_days,
+			t.traffic_limit_bytes,
+			t.is_active,
+			t.sort_order,
+			t.created_at,
+			t.updated_at,
+			p.id,
+			p.tariff_id,
+			p.provider,
+			p.payment_method,
+			p.currency,
+			p.amount_minor,
+			p.stars_amount::bigint,
+			p.accepted_assets,
+			p.is_active,
+			p.sort_order,
+			p.created_at,
+			p.updated_at
 		FROM tariffs t
 		LEFT JOIN tariff_prices p ON p.tariff_id = t.id AND p.is_active = true
 		WHERE t.is_active = true
@@ -67,29 +105,55 @@ func (r *TariffRepository) ListActiveWithPrices(ctx context.Context) ([]domain.T
 	order := make([]int64, 0)
 
 	for rows.Next() {
-		var t domain.Tariff
-		var p domain.TariffPrice
+		var tariff domain.Tariff
+		var price domain.TariffPrice
 		var priceID *int64
 
 		err := rows.Scan(
-			&t.ID, &t.Code, &t.Title, &t.Description, &t.DurationDays, &t.PeriodDays, &t.TrafficLimitBytes, &t.IsActive, &t.SortOrder, &t.CreatedAt, &t.UpdatedAt,
-			&priceID, &p.TariffID, &p.Provider, &p.PaymentMethod, &p.Currency, &p.AmountMinor, &p.StarsAmount, &p.AcceptedAssets, &p.IsActive, &p.SortOrder, &p.CreatedAt, &p.UpdatedAt,
+			&tariff.ID,
+			&tariff.Code,
+			&tariff.Title,
+			&tariff.Description,
+			&tariff.DurationDays,
+			&tariff.PeriodDays,
+			&tariff.TrafficLimitBytes,
+			&tariff.IsActive,
+			&tariff.SortOrder,
+			&tariff.CreatedAt,
+			&tariff.UpdatedAt,
+			&priceID,
+			&price.TariffID,
+			&price.Provider,
+			&price.PaymentMethod,
+			&price.Currency,
+			&price.AmountMinor,
+			&price.StarsAmount,
+			&price.AcceptedAssets,
+			&price.IsActive,
+			&price.SortOrder,
+			&price.CreatedAt,
+			&price.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan tariff with price: %w", err)
 		}
 
-		item, ok := byID[t.ID]
+		item, ok := byID[tariff.ID]
 		if !ok {
-			item = &domain.TariffWithPrices{Tariff: t, Prices: make([]domain.TariffPrice, 0)}
-			byID[t.ID] = item
-			order = append(order, t.ID)
+			item = &domain.TariffWithPrices{
+				Tariff: tariff,
+				Prices: make([]domain.TariffPrice, 0),
+			}
+			byID[tariff.ID] = item
+			order = append(order, tariff.ID)
 		}
+
 		if priceID != nil {
-			p.ID = *priceID
-			item.Prices = append(item.Prices, p)
+			price.ID = *priceID
+			item.Prices = append(item.Prices, price)
 		}
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate tariffs with prices: %w", err)
 	}
@@ -98,24 +162,169 @@ func (r *TariffRepository) ListActiveWithPrices(ctx context.Context) ([]domain.T
 	for _, id := range order {
 		out = append(out, *byID[id])
 	}
+
 	return out, nil
 }
 
 func (r *TariffRepository) GetByID(ctx context.Context, id int64) (*domain.Tariff, error) {
+	return r.getOne(ctx, baseTariffSelect()+" WHERE id = $1 AND is_active = true", id)
+}
+
+func (r *TariffRepository) GetAnyByID(ctx context.Context, id int64) (*domain.Tariff, error) {
+	return r.getOne(ctx, baseTariffSelect()+" WHERE id = $1", id)
+}
+
+func (r *TariffRepository) Create(ctx context.Context, input domain.CreateTariffInput) (*domain.Tariff, error) {
 	ctx, cancel := r.tx.WithTimeout(ctx)
 	defer cancel()
 
-	var t domain.Tariff
-	err := r.tx.Querier(ctx).QueryRow(ctx, `
-		SELECT id, code, title, description, duration_days, period_days, traffic_limit_bytes, is_active, sort_order, created_at, updated_at
-		FROM tariffs
-		WHERE id = $1 AND is_active = true
-	`, id).Scan(&t.ID, &t.Code, &t.Title, &t.Description, &t.DurationDays, &t.PeriodDays, &t.TrafficLimitBytes, &t.IsActive, &t.SortOrder, &t.CreatedAt, &t.UpdatedAt)
+	isActive := true
+	if input.IsActive != nil {
+		isActive = *input.IsActive
+	}
+
+	tariff, err := scanTariff(r.tx.Querier(ctx).QueryRow(ctx, `
+		INSERT INTO tariffs (
+			code,
+			title,
+			description,
+			duration_days,
+			period_days,
+			traffic_limit_bytes,
+			is_active,
+			sort_order
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		RETURNING
+			id,
+			code,
+			title,
+			description,
+			duration_days,
+			period_days,
+			traffic_limit_bytes,
+			is_active,
+			sort_order,
+			created_at,
+			updated_at
+	`, input.Code, input.Title, input.Description, input.DurationDays, input.PeriodDays, domain.TrafficGBToBytes(input.TrafficLimitGB), isActive, input.SortOrder))
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		return nil, fmt.Errorf("create tariff: %w", err)
+	}
+
+	return tariff, nil
+}
+
+func (r *TariffRepository) Update(ctx context.Context, id int64, input domain.UpdateTariffInput) (*domain.Tariff, error) {
+	ctx, cancel := r.tx.WithTimeout(ctx)
+	defer cancel()
+
+	var trafficLimitBytes *int64
+	if input.TrafficLimitGB != nil {
+		value := domain.TrafficGBToBytes(*input.TrafficLimitGB)
+		trafficLimitBytes = &value
+	}
+
+	tariff, err := scanTariff(r.tx.Querier(ctx).QueryRow(ctx, `
+		UPDATE tariffs
+		SET code = COALESCE($2, code),
+		    title = COALESCE($3, title),
+		    description = COALESCE($4, description),
+		    duration_days = COALESCE($5, duration_days),
+		    period_days = COALESCE($6, period_days),
+		    traffic_limit_bytes = COALESCE($7, traffic_limit_bytes),
+		    is_active = COALESCE($8, is_active),
+		    sort_order = COALESCE($9, sort_order),
+		    updated_at = now()
+		WHERE id = $1
+		RETURNING
+			id,
+			code,
+			title,
+			description,
+			duration_days,
+			period_days,
+			traffic_limit_bytes,
+			is_active,
+			sort_order,
+			created_at,
+			updated_at
+	`, id, input.Code, input.Title, input.Description, input.DurationDays, input.PeriodDays, trafficLimitBytes, input.IsActive, input.SortOrder))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
-		return nil, fmt.Errorf("get tariff by id: %w", err)
+		return nil, fmt.Errorf("update tariff: %w", err)
 	}
-	return &t, nil
+
+	return tariff, nil
+}
+
+func (r *TariffRepository) SetActive(ctx context.Context, id int64, isActive bool) (*domain.Tariff, error) {
+	return r.Update(ctx, id, domain.UpdateTariffInput{IsActive: &isActive})
+}
+
+func (r *TariffRepository) getOne(ctx context.Context, query string, args ...any) (*domain.Tariff, error) {
+	ctx, cancel := r.tx.WithTimeout(ctx)
+	defer cancel()
+
+	tariff, err := scanTariff(r.tx.Querier(ctx).QueryRow(ctx, query, args...))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get tariff: %w", err)
+	}
+
+	return tariff, nil
+}
+
+func baseTariffSelect() string {
+	return `
+		SELECT
+			id,
+			code,
+			title,
+			description,
+			duration_days,
+			period_days,
+			traffic_limit_bytes,
+			is_active,
+			sort_order,
+			created_at,
+			updated_at
+		FROM tariffs
+	`
+}
+
+type tariffScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanTariff(row tariffScanner) (*domain.Tariff, error) {
+	var tariff domain.Tariff
+
+	if err := row.Scan(
+		&tariff.ID,
+		&tariff.Code,
+		&tariff.Title,
+		&tariff.Description,
+		&tariff.DurationDays,
+		&tariff.PeriodDays,
+		&tariff.TrafficLimitBytes,
+		&tariff.IsActive,
+		&tariff.SortOrder,
+		&tariff.CreatedAt,
+		&tariff.UpdatedAt,
+	); err != nil {
+		return nil, fmt.Errorf("scan tariff: %w", err)
+	}
+
+	return &tariff, nil
+}
+
+func trimTariffInput(input domain.CreateTariffInput) domain.CreateTariffInput {
+	input.Code = strings.TrimSpace(input.Code)
+	input.Title = strings.TrimSpace(input.Title)
+	return input
 }

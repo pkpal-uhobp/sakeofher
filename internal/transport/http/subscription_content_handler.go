@@ -2,6 +2,7 @@ package httptransport
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,7 +46,7 @@ func (h *PublicHandler) GetBase64SubscriptionByTelegramID(w http.ResponseWriter,
 	//   Accept: text/html -> pretty page.
 	//
 	// App/Postman/curl:
-	//   no text/html OR ?format=base64 -> raw Remnawave subscription body + headers.
+	//   no text/html OR ?format=base64 -> raw subscription body + headers.
 	if wantsHTMLSubscriptionPage(r) {
 		http.Redirect(
 			w,
@@ -59,6 +60,15 @@ func (h *PublicHandler) GetBase64SubscriptionByTelegramID(w http.ResponseWriter,
 	item, err := h.services.Subscriptions.GetLatestByTelegramID(r.Context(), telegramID)
 	if err != nil {
 		WriteDomainError(w, err)
+		return
+	}
+
+	if isSubscriptionAccessExpired(item) {
+		remote := makeExpiredSubscriptionResponse(r, item)
+		copyRemoteResponseHeaders(w.Header(), remote.Header)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(remote.Body))
 		return
 	}
 
@@ -108,6 +118,71 @@ func currentSubscriptionPathSecret() string {
 	return "L0mENeiofHjdxC57"
 }
 
+func isSubscriptionAccessExpired(item *domain.PublicSubscription) bool {
+	if item == nil {
+		return true
+	}
+
+	if item.Subscription.ExpiresAt.Before(time.Now()) {
+		return true
+	}
+
+	status := string(item.Subscription.Status)
+	periodStatus := string(item.Subscription.PeriodStatus)
+
+	return status == string(domain.SubscriptionStatusExpired) ||
+		status == string(domain.SubscriptionStatusCancelled) ||
+		periodStatus == string(domain.PeriodStatusFinished) ||
+		periodStatus == string(domain.PeriodStatusTrafficExhausted)
+}
+
+func makeExpiredSubscriptionResponse(r *http.Request, item *domain.PublicSubscription) *remoteSubscriptionResponse {
+	botURL := renewalBotURL()
+	expireAt := time.Now().Unix()
+
+	if item != nil && !item.Subscription.ExpiresAt.IsZero() {
+		expireAt = item.Subscription.ExpiresAt.Unix()
+	}
+
+	message := "Subscription expired.\nRenew in Telegram: " + botURL + "\n"
+	body := base64.StdEncoding.EncodeToString([]byte("# " + strings.ReplaceAll(message, "\n", "\n# ")))
+
+	headers := make(http.Header)
+	headers.Set("profile-title", "SakeOfHer - expired")
+	headers.Set("profile-update-interval", "1")
+	headers.Set("subscription-userinfo", fmt.Sprintf("upload=0; download=0; total=0; expire=%d", expireAt))
+	headers.Set("profile-web-page-url", botURL)
+
+	// Some clients read this unofficial header, it is harmless for the rest.
+	headers.Set("subscription-status", "expired")
+
+	return &remoteSubscriptionResponse{
+		Body:   body,
+		Header: headers,
+	}
+}
+
+func renewalBotURL() string {
+	for _, key := range []string{
+		"TELEGRAM_BOT_URL",
+		"BOT_URL",
+		"PUBLIC_BOT_URL",
+	} {
+		value := strings.TrimSpace(os.Getenv(key))
+		if value != "" {
+			return value
+		}
+	}
+
+	username := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_USERNAME"))
+	username = strings.TrimPrefix(username, "@")
+	if username != "" {
+		return "https://t.me/" + username
+	}
+
+	return "https://t.me/"
+}
+
 func (h *PublicHandler) makeRemnawaveSubscriptionResponse(
 	ctx context.Context,
 	sourceReq *http.Request,
@@ -132,7 +207,6 @@ func (h *PublicHandler) makeRemnawaveSubscriptionResponse(
 		return nil, fmt.Errorf("remnawave subscription is empty")
 	}
 
-	// Important:
 	// Remnawave already generates the full subscription:
 	// - all proxy configs,
 	// - client routing metadata,
@@ -348,11 +422,16 @@ func publicProfileURL(r *http.Request) string {
 		scheme = "https"
 	}
 
-	if forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
-		return scheme + "://" + forwardedHost + "/profile" + strings.TrimSuffix(r.URL.Path, "/")
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	if !strings.HasPrefix(path, "/profile/") {
+		path = "/profile" + path
 	}
 
-	return scheme + "://" + r.Host + "/profile" + strings.TrimSuffix(r.URL.Path, "/")
+	if forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
+		return scheme + "://" + forwardedHost + path
+	}
+
+	return scheme + "://" + r.Host + path
 }
 
 func subscriptionUserInfoHeader(item *domain.PublicSubscription) string {

@@ -18,31 +18,32 @@
 
       <section v-if="loading" class="state-card">
         <span class="pulse"></span>
-        <h1>Загружаем подписку</h1>
-        <p>Проверяем статус, срок действия и лимиты трафика.</p>
+        <h1>Загружаем доступ</h1>
+        <p>Проверяем срок, трафик текущего периода и статус подключения.</p>
       </section>
 
       <section v-else-if="error" class="state-card error">
         <span class="error-icon">!</span>
-        <h1>Подписка не найдена</h1>
+        <h1>Доступ не найден</h1>
         <p>{{ error }}</p>
         <RouterLink class="primary-button" to="/">На главную</RouterLink>
       </section>
 
       <template v-else-if="data">
-        <section class="hero-card">
+        <section class="hero-card" :class="{ expired: isExpired }">
           <div class="hero-content">
             <p class="eyebrow">Личный доступ</p>
-            <h1>Ваша подписка активна и готова к использованию</h1>
-            <p>
-              Один URL работает в двух режимах: в браузере открывает эту страницу,
-              а в приложениях отдаёт полную Remnawave Base64-подписку.
-            </p>
+            <h1>{{ heroTitle }}</h1>
+            <p>{{ heroDescription }}</p>
 
             <div class="hero-actions">
               <button class="primary-button" type="button" @click="copyLink">
                 Скопировать ссылку
               </button>
+
+              <a v-if="isExpired" class="primary-button renew" :href="botURL" target="_blank" rel="noreferrer">
+                Продлить в Telegram
+              </a>
 
               <button class="secondary-button" type="button" @click="load">
                 Обновить статус
@@ -50,39 +51,74 @@
             </div>
           </div>
 
-          <div class="status-orb" :class="subscription.status">
+          <div class="status-orb" :class="{ expired: isExpired }">
             <div>
-              <strong>{{ statusLabel(subscription.status) }}</strong>
-              <span>{{ daysLeft(subscription.expires_at) }} дней осталось</span>
+              <strong>{{ isExpired ? 'Истекла' : 'Активна' }}</strong>
+              <span>{{ isExpired ? 'Нужно продлить' : `${daysLeft(subscription.expires_at)} дней осталось` }}</span>
             </div>
           </div>
         </section>
 
-        <section class="cards-grid">
-          <article class="glass-card">
+        <section v-if="isExpired" class="expired-card">
+          <span class="card-label">Доступ отключён</span>
+          <h2>Подключения удалены из подписки</h2>
+          <p>
+            При обновлении профиля клиент получит пустую подписку. Чтобы вернуть подключения,
+            продлите доступ через Telegram-бота.
+          </p>
+
+          <a class="primary-button renew" :href="botURL" target="_blank" rel="noreferrer">
+            Перейти к продлению
+          </a>
+        </section>
+
+        <section class="summary-grid">
+          <article class="summary-card">
             <span class="card-label">Пользователь</span>
             <strong>{{ userLabel }}</strong>
-            <p>{{ data.user.telegram_id }}</p>
+            <p>ID {{ data.user.telegram_id }}</p>
           </article>
 
-          <article class="glass-card">
-            <span class="card-label">Тариф</span>
-            <strong>{{ data.tariff.title }}</strong>
-            <p>{{ formatRub(data.tariff.price_rub) }} · {{ formatBytesGB(data.tariff.traffic_limit_bytes) }}</p>
+          <article class="summary-card accent">
+            <span class="card-label">Оплаченный доступ</span>
+            <strong>{{ daysLeft(subscription.expires_at) }} дней</strong>
+            <p>до {{ formatDate(subscription.expires_at) }}</p>
           </article>
 
-          <article class="glass-card">
-            <span class="card-label">Истекает</span>
-            <strong>{{ formatDate(subscription.expires_at) }}</strong>
-            <p>{{ subscription.period_status }}</p>
+          <article class="summary-card">
+            <span class="card-label">Текущий период</span>
+            <strong>{{ periodDaysLeft }} дней</strong>
+            <p>{{ formatDate(periodEnd) }}</p>
           </article>
+        </section>
+
+        <section class="period-card">
+          <div class="period-info">
+            <span class="card-label">Как считается доступ</span>
+            <h2>Продление прибавляется к текущему сроку</h2>
+            <p>
+              При продлении дни не заменяют текущий срок, а добавляются сверху.
+              Лимит трафика считается отдельно для текущего периода и обновляется по расписанию.
+            </p>
+          </div>
+
+          <div class="period-stats">
+            <div>
+              <span>Осталось доступа</span>
+              <strong>{{ daysLeft(subscription.expires_at) }} дн.</strong>
+            </div>
+            <div>
+              <span>Статус периода</span>
+              <strong>{{ periodLabel }}</strong>
+            </div>
+          </div>
         </section>
 
         <section class="main-grid">
           <article class="panel-card">
             <div class="panel-heading">
               <div>
-                <span class="card-label">Трафик</span>
+                <span class="card-label">Трафик текущего периода</span>
                 <h2>{{ usedGB }} / {{ limitGB }} ГБ</h2>
               </div>
 
@@ -95,15 +131,15 @@
 
             <div class="meta-row">
               <span>Использовано {{ formatBytesGB(subscription.traffic_used_bytes) }}</span>
-              <span>Лимит {{ formatBytesGB(subscription.traffic_limit_bytes) }}</span>
+              <span>Доступно {{ remainingGB }} ГБ</span>
             </div>
           </article>
 
           <article class="panel-card">
             <div class="panel-heading">
               <div>
-                <span class="card-label">Срок действия</span>
-                <h2>{{ daysLeft(subscription.expires_at) }} дней</h2>
+                <span class="card-label">Период трафика</span>
+                <h2>{{ isExpired ? 'истёк' : `${periodDaysLeft} дней` }}</h2>
               </div>
 
               <strong>{{ termPercent }}%</strong>
@@ -114,8 +150,8 @@
             </div>
 
             <div class="meta-row">
-              <span>Начало {{ formatDate(subscription.started_at || subscription.created_at) }}</span>
-              <span>Конец {{ formatDate(subscription.expires_at) }}</span>
+              <span>Начало {{ formatDate(periodStart) }}</span>
+              <span>Сброс {{ formatDate(periodEnd) }}</span>
             </div>
           </article>
         </section>
@@ -134,9 +170,9 @@
           </div>
 
           <p class="copy-note">
-            В браузере эта ссылка открывает страницу. Для приложений она отдаёт полную
-            Base64-подписку из Remnawave. Принудительно:
-            <code>?format=base64</code>.
+            В браузере эта ссылка открывает страницу. Для приложений она отдаёт
+            {{ isExpired ? 'пустую подписку с отметкой expired' : 'полную Remnawave Base64-подписку' }}.
+            Принудительно: <code>?format=base64</code>.
           </p>
 
           <p v-if="copied" class="copy-success">Ссылка скопирована.</p>
@@ -146,7 +182,10 @@
           <div class="apps-heading">
             <span class="card-label">Приложения</span>
             <h2>Выберите устройство</h2>
-            <p>Пул приложений ограничен списком как на Remnawave subscription page.</p>
+            <p>
+              Для проверки кнопки «Открыть» соответствующее приложение должно быть установлено
+              и должно зарегистрировать свой protocol handler в системе.
+            </p>
           </div>
 
           <div class="device-tabs">
@@ -192,7 +231,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { api, bytesToGB, formatBytesGB, formatDate, formatRub, daysLeft } from '../../api/client'
+import { api, bytesToGB, formatBytesGB, formatDate, daysLeft } from '../../api/client'
 import { SUBSCRIPTION_DEVICES, buildSubscriptionApps } from './subscriptionClients'
 import type { ClientCore } from './subscriptionClients'
 
@@ -215,6 +254,8 @@ interface Subscription {
   expires_at: string
   started_at?: string
   created_at?: string
+  current_period_start?: string
+  current_period_end?: string
   traffic_used_bytes: number
   traffic_limit_bytes: number
 }
@@ -234,12 +275,62 @@ const copied = ref(false)
 const currentDevice = ref('android')
 
 const devices = SUBSCRIPTION_DEVICES
+const botURL = import.meta.env.VITE_TELEGRAM_BOT_URL || 'https://t.me/'
 
 const subscription = computed(() => data.value!.subscription)
+
+const periodStart = computed(() => (
+  subscription.value.current_period_start ||
+  subscription.value.started_at ||
+  subscription.value.created_at ||
+  subscription.value.expires_at
+))
+
+const periodEnd = computed(() => (
+  subscription.value.current_period_end ||
+  subscription.value.expires_at
+))
+
+const isExpired = computed(() => {
+  const status = subscription.value.status
+  const period = subscription.value.period_status
+  const expiresAt = new Date(subscription.value.expires_at).getTime()
+
+  return status === 'expired' ||
+    status === 'cancelled' ||
+    period === 'finished' ||
+    period === 'traffic_exhausted' ||
+    (Number.isFinite(expiresAt) && expiresAt <= Date.now())
+})
+
+const heroTitle = computed(() => (
+  isExpired.value
+    ? 'Подписка истекла'
+    : 'Доступ активен'
+))
+
+const heroDescription = computed(() => (
+  isExpired.value
+    ? 'Доступ временно отключён. Подключения будут удалены из профиля при обновлении подписки. Продлите доступ через Telegram-бота.'
+    : 'Проверяйте срок действия, трафик текущего периода и используйте одну ссылку для всех приложений.'
+))
 
 const userLabel = computed(() => {
   const username = data.value?.user.telegram_username
   return username ? `@${username}` : `ID ${data.value?.user.telegram_id || '—'}`
+})
+
+const periodLabel = computed(() => {
+  switch (subscription.value.period_status) {
+    case 'active':
+      return 'активен'
+    case 'traffic_exhausted':
+      return 'лимит исчерпан'
+    case 'finished':
+      return 'завершён'
+    default:
+      return subscription.value.period_status || '—'
+  }
 })
 
 const directSubscriptionPath = computed(() => {
@@ -265,6 +356,11 @@ const appSubscriptionLink = computed(() => {
 const usedGB = computed(() => bytesToGB(subscription.value.traffic_used_bytes))
 const limitGB = computed(() => bytesToGB(subscription.value.traffic_limit_bytes))
 
+const remainingGB = computed(() => {
+  const remaining = Math.max(0, subscription.value.traffic_limit_bytes - subscription.value.traffic_used_bytes)
+  return bytesToGB(remaining)
+})
+
 const trafficPercent = computed(() => {
   const limit = subscription.value.traffic_limit_bytes
   if (!limit || limit <= 0) return 0
@@ -272,14 +368,23 @@ const trafficPercent = computed(() => {
   return Math.min(100, Math.round((subscription.value.traffic_used_bytes / limit) * 100))
 })
 
+const periodDaysLeft = computed(() => {
+  if (isExpired.value) return 0
+
+  const end = new Date(periodEnd.value).getTime()
+  if (!Number.isFinite(end)) return 0
+
+  return Math.max(0, Math.ceil((end - Date.now()) / 86400000))
+})
+
 const termPercent = computed(() => {
-  const started = new Date(subscription.value.started_at || subscription.value.created_at || Date.now()).getTime()
-  const expires = new Date(subscription.value.expires_at).getTime()
+  const started = new Date(periodStart.value).getTime()
+  const ends = new Date(periodEnd.value).getTime()
   const now = Date.now()
 
-  if (!Number.isFinite(started) || !Number.isFinite(expires) || expires <= started) return 0
+  if (!Number.isFinite(started) || !Number.isFinite(ends) || ends <= started) return 100
 
-  return Math.max(0, Math.min(100, Math.round(((now - started) / (expires - started)) * 100)))
+  return Math.max(0, Math.min(100, Math.round(((now - started) / (ends - started)) * 100)))
 })
 
 const apps = computed(() =>
@@ -320,19 +425,6 @@ async function load() {
 async function copyLink() {
   await navigator.clipboard.writeText(subscriptionLink.value)
   copied.value = true
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case 'active':
-      return 'Активна'
-    case 'expired':
-      return 'Истекла'
-    case 'cancelled':
-      return 'Отменена'
-    default:
-      return status
-  }
 }
 
 function coreLabel(core: ClientCore): string {
@@ -439,11 +531,13 @@ function coreLabel(core: ClientCore): string {
 }
 
 .hero-card,
-.glass-card,
+.summary-card,
 .panel-card,
 .link-card,
 .apps-card,
-.state-card {
+.state-card,
+.expired-card,
+.period-card {
   border: 1px solid rgba(148, 163, 184, 0.18);
   background:
     linear-gradient(180deg, rgba(15, 23, 42, 0.84), rgba(2, 6, 23, 0.66)),
@@ -464,6 +558,10 @@ function coreLabel(core: ClientCore): string {
   border-radius: clamp(24px, 4vw, 36px);
 }
 
+.hero-card.expired {
+  border-color: rgba(248, 113, 113, 0.22);
+}
+
 .eyebrow,
 .card-label {
   display: block;
@@ -478,16 +576,16 @@ function coreLabel(core: ClientCore): string {
 .hero-card h1 {
   max-width: 760px;
   margin: 0;
-  font-size: clamp(38px, 8vw, 76px);
-  line-height: 0.95;
-  letter-spacing: -0.075em;
+  font-size: clamp(48px, 9vw, 92px);
+  line-height: 0.9;
+  letter-spacing: -0.08em;
 }
 
 .hero-card p {
   max-width: 650px;
   margin: 22px 0 0;
   color: rgba(203, 213, 225, 0.86);
-  font-size: clamp(16px, 2.2vw, 19px);
+  font-size: clamp(16px, 2.2vw, 20px);
   line-height: 1.55;
 }
 
@@ -521,6 +619,10 @@ function coreLabel(core: ClientCore): string {
   box-shadow: 0 18px 42px rgba(0, 102, 255, 0.28);
 }
 
+.primary-button.renew {
+  background: linear-gradient(135deg, #22c55e, #15803d);
+}
+
 .secondary-button,
 .ghost-button {
   border: 1px solid rgba(148, 163, 184, 0.2);
@@ -544,8 +646,7 @@ function coreLabel(core: ClientCore): string {
   text-align: center;
 }
 
-.status-orb.expired,
-.status-orb.cancelled {
+.status-orb.expired {
   border-color: rgba(248, 113, 113, 0.28);
   background:
     radial-gradient(circle at 40% 30%, rgba(248, 113, 113, 0.34), rgba(251, 146, 60, 0.12) 45%, rgba(15, 23, 42, 0.62) 70%),
@@ -564,14 +665,42 @@ function coreLabel(core: ClientCore): string {
   color: #cbd5e1;
 }
 
-.cards-grid,
+.expired-card,
+.period-card {
+  margin-top: 18px;
+  padding: clamp(20px, 3vw, 26px);
+  border-radius: clamp(22px, 3vw, 30px);
+}
+
+.expired-card {
+  border-color: rgba(248, 113, 113, 0.22);
+  background:
+    linear-gradient(180deg, rgba(127, 29, 29, 0.25), rgba(2, 6, 23, 0.76)),
+    radial-gradient(circle at top left, rgba(248, 113, 113, 0.12), transparent 42%);
+}
+
+.expired-card h2,
+.period-card h2 {
+  margin: 0;
+  font-size: clamp(26px, 4vw, 34px);
+  letter-spacing: -0.05em;
+}
+
+.expired-card p,
+.period-card p {
+  max-width: 780px;
+  color: #cbd5e1;
+  line-height: 1.55;
+}
+
+.summary-grid,
 .main-grid {
   display: grid;
   gap: 18px;
   margin-top: 18px;
 }
 
-.cards-grid {
+.summary-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -579,7 +708,7 @@ function coreLabel(core: ClientCore): string {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.glass-card,
+.summary-card,
 .panel-card,
 .link-card,
 .apps-card {
@@ -587,16 +716,55 @@ function coreLabel(core: ClientCore): string {
   padding: clamp(20px, 3vw, 26px);
 }
 
-.glass-card strong {
+.summary-card.accent {
+  border-color: rgba(34, 197, 94, 0.22);
+  background:
+    linear-gradient(180deg, rgba(20, 83, 45, 0.2), rgba(2, 6, 23, 0.66)),
+    radial-gradient(circle at top left, rgba(34, 197, 94, 0.12), transparent 42%);
+}
+
+.summary-card strong {
   display: block;
-  font-size: clamp(22px, 4vw, 27px);
-  letter-spacing: -0.04em;
+  font-size: clamp(24px, 4vw, 34px);
+  letter-spacing: -0.05em;
   overflow-wrap: anywhere;
 }
 
-.glass-card p {
+.summary-card p {
   margin: 8px 0 0;
   color: #94a3b8;
+}
+
+.period-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 360px);
+  gap: 22px;
+  align-items: center;
+}
+
+.period-stats {
+  display: grid;
+  gap: 12px;
+}
+
+.period-stats div {
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 18px;
+  background: rgba(2, 6, 23, 0.36);
+}
+
+.period-stats span {
+  display: block;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.period-stats strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 26px;
+  letter-spacing: -0.05em;
 }
 
 .panel-heading {
@@ -817,9 +985,10 @@ function coreLabel(core: ClientCore): string {
 
 @media (max-width: 980px) {
   .hero-card,
-  .cards-grid,
+  .summary-grid,
   .main-grid,
-  .apps-grid {
+  .apps-grid,
+  .period-card {
     grid-template-columns: 1fr;
   }
 

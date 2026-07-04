@@ -16,17 +16,16 @@ func (r *SubscriptionRepository) FindActiveWithRemna(ctx context.Context, limit 
 		SELECT
 			s.id, s.user_id, s.tariff_id, s.last_payment_id, s.status,
 			s.started_at, s.expires_at, s.current_period_start, s.current_period_end,
-			s.traffic_limit_bytes, s.traffic_used_bytes, s.period_status,
-			s.public_token, s.last_remna_check_at, s.last_expire_notification_at,
-			s.last_traffic_notification_at, s.notified_3_days, s.notified_1_day,
-			s.notified_expired, s.traffic_80_notified, s.traffic_95_notified,
-			s.traffic_exhausted_notified, s.created_at, s.updated_at,
+			s.traffic_limit_bytes, s.traffic_used_bytes, s.period_status, s.public_token,
+			s.last_remna_check_at, s.last_expire_notification_at, s.last_traffic_notification_at,
+			s.notified_3_days, s.notified_1_day, s.notified_expired,
+			s.traffic_80_notified, s.traffic_95_notified, s.traffic_exhausted_notified,
+			s.created_at, s.updated_at,
 
-			u.id, u.telegram_id, u.telegram_username, u.telegram_first_name,
-			u.telegram_last_name, u.language_code, u.alias, u.remna_uuid,
-			u.remna_username, u.subscription_url, u.status, u.remna_status,
-			u.disabled_at, u.delete_after, u.deleted_at, u.last_seen_at,
-			u.created_at, u.updated_at
+			u.id, u.telegram_id, u.telegram_username, u.telegram_first_name, u.telegram_last_name,
+			u.language_code, u.alias, u.remna_uuid, u.remna_username, u.subscription_url,
+			u.status, u.remna_status, u.disabled_at, u.delete_after, u.deleted_at,
+			u.last_seen_at, u.created_at, u.updated_at
 		FROM subscriptions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.status = 'active'
@@ -46,6 +45,7 @@ func (r *SubscriptionRepository) FindActiveWithRemna(ctx context.Context, limit 
 		if err := scanSubscriptionWithUser(rows, &item); err != nil {
 			return nil, err
 		}
+
 		out = append(out, item)
 	}
 
@@ -56,7 +56,7 @@ func (r *SubscriptionRepository) FindActiveWithRemna(ctx context.Context, limit 
 	return out, nil
 }
 
-func (r *SubscriptionRepository) FindReadyForTrafficReset(ctx context.Context, now time.Time, limit int) ([]domain.SubscriptionWithUserAndTariff, error) {
+func (r *SubscriptionRepository) FindReadyForTrafficReset(ctx context.Context, now time.Time, limit int) ([]domain.SubscriptionWithUser, error) {
 	ctx, cancel := r.tx.WithTimeout(ctx)
 	defer cancel()
 
@@ -64,17 +64,16 @@ func (r *SubscriptionRepository) FindReadyForTrafficReset(ctx context.Context, n
 		SELECT
 			s.id, s.user_id, s.tariff_id, s.last_payment_id, s.status,
 			s.started_at, s.expires_at, s.current_period_start, s.current_period_end,
-			s.traffic_limit_bytes, s.traffic_used_bytes, s.period_status,
-			s.public_token, s.last_remna_check_at, s.last_expire_notification_at,
-			s.last_traffic_notification_at, s.notified_3_days, s.notified_1_day,
-			s.notified_expired, s.traffic_80_notified, s.traffic_95_notified,
-			s.traffic_exhausted_notified, s.created_at, s.updated_at,
+			s.traffic_limit_bytes, s.traffic_used_bytes, s.period_status, s.public_token,
+			s.last_remna_check_at, s.last_expire_notification_at, s.last_traffic_notification_at,
+			s.notified_3_days, s.notified_1_day, s.notified_expired,
+			s.traffic_80_notified, s.traffic_95_notified, s.traffic_exhausted_notified,
+			s.created_at, s.updated_at,
 
-			u.id, u.telegram_id, u.telegram_username, u.telegram_first_name,
-			u.telegram_last_name, u.language_code, u.alias, u.remna_uuid,
-			u.remna_username, u.subscription_url, u.status, u.remna_status,
-			u.disabled_at, u.delete_after, u.deleted_at, u.last_seen_at,
-			u.created_at, u.updated_at,
+			u.id, u.telegram_id, u.telegram_username, u.telegram_first_name, u.telegram_last_name,
+			u.language_code, u.alias, u.remna_uuid, u.remna_username, u.subscription_url,
+			u.status, u.remna_status, u.disabled_at, u.delete_after, u.deleted_at,
+			u.last_seen_at, u.created_at, u.updated_at,
 
 			t.id, t.code, t.title, t.description, t.duration_days, t.period_days,
 			t.traffic_limit_bytes, t.is_active, t.sort_order, t.created_at, t.updated_at
@@ -94,10 +93,9 @@ func (r *SubscriptionRepository) FindReadyForTrafficReset(ctx context.Context, n
 	}
 	defer rows.Close()
 
-	out := make([]domain.SubscriptionWithUserAndTariff, 0)
+	out := make([]domain.SubscriptionWithUser, 0)
 	for rows.Next() {
-		var item domain.SubscriptionWithUserAndTariff
-
+		var item domain.SubscriptionWithUser
 		if err := rows.Scan(
 			&item.Subscription.ID,
 			&item.Subscription.UserID,

@@ -159,7 +159,6 @@ export function buildSubscriptionApps(params: {
 }): SubscriptionClientCard[] {
   const raw = params.subscriptionURL
   const encoded = encodeURIComponent(raw)
-  const encodedURI = encodeURI(raw)
   const base64 = toBase64(raw)
   const name = encodeURIComponent('SakeOfHer')
 
@@ -177,7 +176,6 @@ export function buildSubscriptionApps(params: {
         open: buildOpenURL(client.id, client.core, {
           raw,
           encoded,
-          encodedURI,
           base64,
           name,
         }),
@@ -192,17 +190,18 @@ function buildOpenURL(
   link: {
     raw: string
     encoded: string
-    encodedURI: string
     base64: string
     name: string
   },
 ): string {
   switch (id) {
     case 'happ':
-      return `hiddify://install-sub/?url=${link.encoded}`
+      // Remnawave uses: happ://add/{subscriptionURL}
+      // Do not use hiddify:// here, otherwise Chrome opens Hiddify for Happ.
+      return `happ://add/${link.raw}`
 
     case 'hiddify':
-      return `hiddify://import/${link.encodedURI}#${link.name}`
+      return `hiddify://install-sub/?url=${link.encoded}`
 
     case 'v2raytun':
       return `v2raytun://import/${link.raw}`

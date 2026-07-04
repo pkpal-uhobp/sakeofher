@@ -21,8 +21,6 @@ const (
 	statusActive                = "ACTIVE"
 	statusDisabled              = "DISABLED"
 
-	// Remnawave accepts hwidDeviceLimit with minimum 0.
-	// We explicitly send 0 to avoid HWID/device limit in generated subscriptions.
 	noHWIDDeviceLimit = 0
 )
 
@@ -66,7 +64,10 @@ type updateUserRequestDTO struct {
 	Email                *string  `json:"email,omitempty"`
 	Tag                  *string  `json:"tag,omitempty"`
 	HWIDDeviceLimit      int      `json:"hwidDeviceLimit"`
-	ActiveInternalSquads []string `json:"activeInternalSquads,omitempty"`
+
+	// Do NOT add omitempty.
+	// [] must be sent to Remnawave to remove user from all internal squads.
+	ActiveInternalSquads []string `json:"activeInternalSquads"`
 }
 
 type userResponseDTO struct {

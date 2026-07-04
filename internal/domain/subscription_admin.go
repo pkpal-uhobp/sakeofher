@@ -4,10 +4,10 @@ import "time"
 
 type SubscriptionListInput struct {
 	UserID     int64              `json:"user_id"`
-	TelegramID int64             `json:"telegram_id"`
+	TelegramID int64              `json:"telegram_id"`
 	Status     SubscriptionStatus `json:"status"`
-	Limit      int               `json:"limit"`
-	Offset     int               `json:"offset"`
+	Limit      int                `json:"limit"`
+	Offset     int                `json:"offset"`
 }
 
 type SubscriptionListResponse struct {
@@ -18,15 +18,16 @@ type SubscriptionListResponse struct {
 }
 
 type CreateManualSubscriptionInput struct {
-	UserID              int64    `json:"user_id"`
-	TariffID            int64    `json:"tariff_id"`
-	TrafficLimitGB      int64    `json:"traffic_limit_gb"`
+	UserID               int64    `json:"user_id"`
+	TariffID             int64    `json:"tariff_id"`
+	TrafficLimitGB       int64    `json:"traffic_limit_gb"`
 	ActiveInternalSquads []string `json:"active_internal_squads,omitempty"`
 }
 
 type ExtendSubscriptionInput struct {
-	TariffID *int64 `json:"tariff_id,omitempty"`
-	Days     *int   `json:"days,omitempty"`
+	TariffID             *int64   `json:"tariff_id,omitempty"`
+	Days                 *int     `json:"days,omitempty"`
+	ActiveInternalSquads []string `json:"active_internal_squads,omitempty"`
 }
 
 type UpdateTrafficLimitInput struct {

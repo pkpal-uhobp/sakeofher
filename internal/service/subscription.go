@@ -56,6 +56,7 @@ func (s *subscriptionService) ActivateAfterPayment(ctx context.Context, paymentI
 		if payment.Status == domain.PaymentStatusActivated {
 			return nil
 		}
+
 		return domain.ErrPaymentNotPaid
 	}
 
@@ -64,10 +65,18 @@ func (s *subscriptionService) ActivateAfterPayment(ctx context.Context, paymentI
 		return err
 	}
 
+	squads, err := s.repo.Users.GetRemnaActiveSquads(ctx, user.ID)
+	if err != nil {
+		return err
+	}
+	if len(squads) == 0 {
+		squads = defaultRemnaSquadsFromEnv()
+	}
+
 	now := time.Now()
 	expiresAtPreview := now.AddDate(0, 0, payment.DurationDays)
 
-	remnaUser, err := s.ensureRemnaUser(ctx, user, payment.TrafficLimitBytes, expiresAtPreview)
+	remnaUser, err := s.ensureRemnaUserWithSquads(ctx, user, payment.TrafficLimitBytes, expiresAtPreview, squads)
 	if err != nil {
 		_ = s.repo.Payments.MarkActivationFailed(ctx, paymentID, err)
 		return err
@@ -78,15 +87,20 @@ func (s *subscriptionService) ActivateAfterPayment(ctx context.Context, paymentI
 		if err != nil {
 			return err
 		}
-		_ = lockedUser
 
-		if err := s.repo.Users.SetRemnaData(ctx, user.ID, domain.RemnaUserData{
+		if err := s.repo.Users.SetRemnaData(ctx, lockedUser.ID, domain.RemnaUserData{
 			UUID:            remnaUser.UUID,
 			Username:        remnaUser.Username,
 			SubscriptionURL: remnaUser.SubscriptionURL,
 			Status:          domain.RemnaStatusActive,
 		}); err != nil {
 			return err
+		}
+
+		if len(squads) > 0 {
+			if err := s.repo.Users.SetRemnaActiveSquads(ctx, lockedUser.ID, squads); err != nil {
+				return err
+			}
 		}
 
 		if err := s.createOrExtendSubscription(ctx, payment, now); err != nil {
@@ -101,7 +115,9 @@ func (s *subscriptionService) ActivateAfterPayment(ctx context.Context, paymentI
 			"payment_id": payment.ID,
 			"user_id":    user.ID,
 			"remna_uuid": remnaUser.UUID,
+			"squads":     squads,
 		})
+
 		_ = s.repo.RemnaSync.Create(ctx, domain.RemnaSyncLog{
 			UserID:         &user.ID,
 			PaymentID:      &payment.ID,
@@ -115,37 +131,16 @@ func (s *subscriptionService) ActivateAfterPayment(ctx context.Context, paymentI
 }
 
 func (s *subscriptionService) ensureRemnaUser(ctx context.Context, user *domain.User, trafficLimitBytes int64, expiresAt time.Time) (*domain.RemnaUser, error) {
-	username := remnaUsername(user)
-	description := fmt.Sprintf("Telegram ID: %d", user.TelegramID)
-	expiresAtUnix := expiresAt.Unix()
-
-	if user.RemnaUUID == nil || *user.RemnaUUID == "" || user.RemnaStatus == domain.RemnaStatusDeleted || user.RemnaStatus == domain.RemnaStatusNotCreated {
-		return s.remna.CreateUser(ctx, domain.CreateRemnaUserRequest{
-			Username:             username,
-			TrafficLimitBytes:    trafficLimitBytes,
-			ExpiresAtUnix:        expiresAtUnix,
-			TrafficResetStrategy: "NO_RESET",
-			Description:          description,
-			TelegramID:           &user.TelegramID,
-		})
+	squads, err := s.repo.Users.GetRemnaActiveSquads(ctx, user.ID)
+	if err != nil {
+		return nil, err
 	}
 
-	if user.RemnaStatus == domain.RemnaStatusDisabled {
-		if err := s.remna.EnableUser(ctx, *user.RemnaUUID); err != nil {
-			return nil, err
-		}
+	if len(squads) == 0 {
+		squads = defaultRemnaSquadsFromEnv()
 	}
 
-	return s.remna.UpdateUser(ctx, domain.UpdateRemnaUserRequest{
-		UUID:                 *user.RemnaUUID,
-		Username:             username,
-		Status:               "ACTIVE",
-		TrafficLimitBytes:    &trafficLimitBytes,
-		ExpiresAtUnix:        &expiresAtUnix,
-		TrafficResetStrategy: "NO_RESET",
-		Description:          &description,
-		TelegramID:           &user.TelegramID,
-	})
+	return s.ensureRemnaUserWithSquads(ctx, user, trafficLimitBytes, expiresAt, squads)
 }
 
 func (s *subscriptionService) createOrExtendSubscription(ctx context.Context, payment *domain.Payment, now time.Time) error {
@@ -167,6 +162,7 @@ func (s *subscriptionService) createOrExtendSubscription(ctx context.Context, pa
 		active.ExpiresAt = base.AddDate(0, 0, payment.DurationDays)
 		active.TrafficLimitBytes = payment.TrafficLimitBytes
 		active.PeriodStatus = domain.PeriodStatusActive
+		active.Status = domain.SubscriptionStatusActive
 
 		if active.CurrentPeriodEnd.Before(now) || active.CurrentPeriodEnd.After(active.ExpiresAt) {
 			active.CurrentPeriodStart = now
@@ -178,7 +174,6 @@ func (s *subscriptionService) createOrExtendSubscription(ctx context.Context, pa
 
 		return s.repo.Subscriptions.ExtendActive(ctx, active)
 	}
-
 	if err != domain.ErrNotFound {
 		return err
 	}
@@ -209,17 +204,23 @@ func (s *subscriptionService) DisableExpiredSubscriptions(ctx context.Context, l
 	}
 
 	for _, item := range expired {
-		if item.User.RemnaUUID != nil && *item.User.RemnaUUID != "" {
-			if err := s.remna.DisableUser(ctx, *item.User.RemnaUUID); err != nil {
-				return err
-			}
+		publicItem := &domain.PublicSubscription{
+			Subscription: item.Subscription,
+			User:         item.User,
+			Tariff:       item.Tariff,
+		}
+
+		if err := s.removeRemnaUserFromAllSquads(ctx, publicItem); err != nil {
+			return err
 		}
 
 		deleteAfter := now.AddDate(0, 0, 7)
+
 		if err := s.repo.Tx.WithinTransaction(ctx, func(ctx context.Context) error {
 			if err := s.repo.Subscriptions.MarkExpired(ctx, item.Subscription.ID); err != nil {
 				return err
 			}
+
 			if err := s.repo.Users.MarkRemnaDisabled(ctx, item.User.ID, now, deleteAfter); err != nil {
 				return err
 			}
@@ -286,15 +287,23 @@ func (s *subscriptionService) SyncRemnaUsage(ctx context.Context, limit int) err
 
 		if limitBytes > 0 && used >= limitBytes {
 			if item.Subscription.PeriodStatus != domain.PeriodStatusTrafficExhausted {
-				if err := s.remna.DisableUser(ctx, *item.User.RemnaUUID); err != nil {
+				publicItem := &domain.PublicSubscription{
+					Subscription: item.Subscription,
+					User:         item.User,
+					Tariff:       item.Tariff,
+				}
+
+				if err := s.removeRemnaUserFromAllSquads(ctx, publicItem); err != nil {
 					return err
 				}
+
 				_ = s.notifications.Send(ctx, item.User.TelegramID, "Лимит трафика по VPN исчерпан.\nДоступ будет восстановлен после обновления периода или продления.")
 			}
 
 			if err := s.repo.Subscriptions.MarkTrafficExhausted(ctx, item.Subscription.ID, used, now); err != nil {
 				return err
 			}
+
 			continue
 		}
 
@@ -323,15 +332,22 @@ func (s *subscriptionService) ResetTrafficPeriods(ctx context.Context, limit int
 			return err
 		}
 
-		if item.Subscription.PeriodStatus == domain.PeriodStatusTrafficExhausted {
-			if err := s.remna.EnableUser(ctx, *item.User.RemnaUUID); err != nil {
-				return err
-			}
-		}
-
 		nextEnd := now.AddDate(0, 0, item.Tariff.PeriodDays)
 		if nextEnd.After(item.Subscription.ExpiresAt) {
 			nextEnd = item.Subscription.ExpiresAt
+		}
+
+		if item.Subscription.PeriodStatus == domain.PeriodStatusTrafficExhausted {
+			publicItem := &domain.PublicSubscription{
+				Subscription: item.Subscription,
+				User:         item.User,
+				Tariff:       item.Tariff,
+			}
+
+			_, err := s.restoreRemnaUserSquads(ctx, publicItem, nil)
+			if err != nil {
+				return err
+			}
 		}
 
 		if err := s.repo.Subscriptions.ResetTrafficPeriod(ctx, item.Subscription.ID, now, nextEnd); err != nil {
@@ -377,9 +393,8 @@ func (s *subscriptionService) PurchaseFromSite(ctx context.Context, input domain
 		if err != nil {
 			return err
 		}
-		_ = lockedUser
 
-		if err := s.repo.Users.SetRemnaData(ctx, user.ID, domain.RemnaUserData{
+		if err := s.repo.Users.SetRemnaData(ctx, lockedUser.ID, domain.RemnaUserData{
 			UUID:            remnaUser.UUID,
 			Username:        remnaUser.Username,
 			SubscriptionURL: remnaUser.SubscriptionURL,
@@ -388,7 +403,7 @@ func (s *subscriptionService) PurchaseFromSite(ctx context.Context, input domain
 			return err
 		}
 
-		return s.createOrExtendSiteSubscription(ctx, user.ID, tariff, trafficLimitBytes, now)
+		return s.createOrExtendSiteSubscription(ctx, lockedUser.ID, tariff, trafficLimitBytes, now)
 	}); err != nil {
 		return nil, err
 	}
@@ -443,9 +458,8 @@ func (s *subscriptionService) RenewFromSite(ctx context.Context, input domain.Si
 		if err != nil {
 			return err
 		}
-		_ = lockedUser
 
-		if err := s.repo.Users.SetRemnaData(ctx, current.User.ID, domain.RemnaUserData{
+		if err := s.repo.Users.SetRemnaData(ctx, lockedUser.ID, domain.RemnaUserData{
 			UUID:            remnaUser.UUID,
 			Username:        remnaUser.Username,
 			SubscriptionURL: remnaUser.SubscriptionURL,
@@ -454,7 +468,7 @@ func (s *subscriptionService) RenewFromSite(ctx context.Context, input domain.Si
 			return err
 		}
 
-		return s.createOrExtendSiteSubscription(ctx, current.User.ID, tariff, trafficLimitBytes, now)
+		return s.createOrExtendSiteSubscription(ctx, lockedUser.ID, tariff, trafficLimitBytes, now)
 	}); err != nil {
 		return nil, err
 	}
@@ -486,6 +500,7 @@ func (s *subscriptionService) createOrExtendSiteSubscription(ctx context.Context
 		active.ExpiresAt = base.AddDate(0, 0, tariff.DurationDays)
 		active.TrafficLimitBytes = trafficLimitBytes
 		active.PeriodStatus = domain.PeriodStatusActive
+		active.Status = domain.SubscriptionStatusActive
 
 		if active.CurrentPeriodEnd.Before(now) || active.CurrentPeriodEnd.After(active.ExpiresAt) {
 			active.CurrentPeriodStart = now
@@ -497,7 +512,6 @@ func (s *subscriptionService) createOrExtendSiteSubscription(ctx context.Context
 
 		return s.repo.Subscriptions.ExtendActive(ctx, active)
 	}
-
 	if err != domain.ErrNotFound {
 		return err
 	}

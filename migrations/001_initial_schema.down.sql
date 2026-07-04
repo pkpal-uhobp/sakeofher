@@ -1,8 +1,11 @@
 -- 001_initial_schema.down.sql
--- Rollback initial PostgreSQL schema.
+-- Rollback grouped initial schema.
 
 BEGIN;
 
+DROP TABLE IF EXISTS subscription_lifecycle_events;
+DROP TABLE IF EXISTS subscription_notifications;
+DROP TABLE IF EXISTS user_remna_squads;
 DROP TABLE IF EXISTS remna_sync_logs;
 DROP TABLE IF EXISTS broadcast_recipients;
 DROP TABLE IF EXISTS broadcasts;

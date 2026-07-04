@@ -1,2 +1,0 @@
--- PostgreSQL enum values cannot be removed safely.
--- Leave payment_method value 'rub' in place.

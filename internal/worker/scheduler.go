@@ -47,6 +47,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 
 	// Run immediately, not after the first hour.
 	s.runJob(ctx, "expire subscriptions", s.services.Workers.ExpireSubscriptions)
+	s.runJob(ctx, "reconcile remnawave state", s.services.Workers.ReconcileRemnaState)
 	s.runJob(ctx, "sync remnawave usage", s.services.Workers.SyncUsage)
 	s.runJob(ctx, "reset traffic periods", s.services.Workers.ResetTrafficPeriods)
 	s.runJob(ctx, "notify expiring and traffic", s.services.Workers.NotifyExpiringAndTraffic)
@@ -59,6 +60,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 
 		case <-expireTicker.C:
 			s.runJob(ctx, "expire subscriptions", s.services.Workers.ExpireSubscriptions)
+			s.runJob(ctx, "reconcile remnawave state", s.services.Workers.ReconcileRemnaState)
 
 		case <-deleteTicker.C:
 			s.runJob(ctx, "delete old disabled users", s.services.Workers.DeleteOldDisabledUsers)
@@ -68,9 +70,11 @@ func (s *Scheduler) Run(ctx context.Context) error {
 
 		case <-syncUsageTicker.C:
 			s.runJob(ctx, "sync remnawave usage", s.services.Workers.SyncUsage)
+			s.runJob(ctx, "reconcile remnawave state", s.services.Workers.ReconcileRemnaState)
 
 		case <-resetTrafficTicker.C:
 			s.runJob(ctx, "reset traffic periods", s.services.Workers.ResetTrafficPeriods)
+			s.runJob(ctx, "reconcile remnawave state", s.services.Workers.ReconcileRemnaState)
 
 		case <-notifyTicker.C:
 			s.runJob(ctx, "notify expiring and traffic", s.services.Workers.NotifyExpiringAndTraffic)

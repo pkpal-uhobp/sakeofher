@@ -61,6 +61,7 @@ type SubscriptionService interface {
 	DeleteOldDisabledUsers(ctx context.Context, limit int) error
 	SyncRemnaUsage(ctx context.Context, limit int) error
 	ResetTrafficPeriods(ctx context.Context, limit int) error
+	ReconcileRemnaState(ctx context.Context, limit int) error
 
 	List(ctx context.Context, input domain.SubscriptionListInput) (*domain.SubscriptionListResponse, error)
 	GetByID(ctx context.Context, id int64) (*domain.PublicSubscription, error)
@@ -87,6 +88,7 @@ type WorkerService interface {
 	SyncUsage(ctx context.Context) error
 	ResetTrafficPeriods(ctx context.Context) error
 	NotifyExpiringAndTraffic(ctx context.Context) error
+	ReconcileRemnaState(ctx context.Context) error
 }
 
 type Services struct {

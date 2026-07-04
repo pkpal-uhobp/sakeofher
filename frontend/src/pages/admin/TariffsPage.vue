@@ -1,287 +1,3 @@
-<template>
-  <AdminLayout>
-    <header class="admin-topbar">
-      <div class="admin-title">
-        <h1>Тарифы</h1>
-        <p>Цена, срок, лимит и включение способов оплаты отдельно для Stars и CryptoBot.</p>
-      </div>
-
-      <button class="admin-button" type="button" @click="openCreate">
-        + Добавить тариф
-      </button>
-    </header>
-
-    <section class="admin-card admin-card-body">
-      <div class="admin-toolbar">
-        <div class="admin-filters">
-          <label class="form-field">
-            <span>Поиск</span>
-            <input
-              v-model.trim="search"
-              class="admin-input"
-              placeholder="Название, код или описание"
-            />
-          </label>
-
-          <label class="form-field">
-            <span>Статус</span>
-            <select v-model="statusFilter" class="admin-select">
-              <option value="">Все</option>
-              <option value="active">Активные</option>
-              <option value="disabled">Отключённые</option>
-            </select>
-          </label>
-        </div>
-
-        <button class="admin-ghost" type="button" @click="load">
-          Обновить
-        </button>
-      </div>
-
-      <p v-if="loading" class="admin-loading">Загружаем тарифы…</p>
-      <p v-else-if="error" class="admin-error">{{ error }}</p>
-
-      <div v-else-if="filteredTariffs.length" class="admin-table-wrap">
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Код</th>
-              <th>Название</th>
-              <th>Цена</th>
-              <th>Оплата</th>
-              <th>Срок</th>
-              <th>Лимит</th>
-              <th>Статус</th>
-              <th></th>
-            </tr>
-          </thead>
-
-          <tbody>
-            <tr v-for="tariff in filteredTariffs" :key="tariff.id">
-              <td>{{ tariff.id }}</td>
-              <td><span class="admin-kbd">{{ tariff.code }}</span></td>
-              <td>
-                <strong>{{ tariff.title }}</strong>
-                <br />
-                <span>{{ tariff.description || '—' }}</span>
-              </td>
-              <td>
-                <strong>{{ formatRub(tariff.price_rub) }}</strong>
-              </td>
-              <td>
-                <div class="payment-badges">
-                  <span v-for="label in paymentLabels(tariff)" :key="label" class="status-pill active">
-                    {{ label }}
-                  </span>
-                  <span v-if="!paymentLabels(tariff).length" class="status-pill disabled">нет</span>
-                </div>
-              </td>
-              <td>{{ tariff.duration_days }} дн.</td>
-              <td>{{ formatBytesGB(tariff.traffic_limit_bytes) }}</td>
-              <td>
-                <span class="status-pill" :class="tariff.is_active ? 'active' : 'disabled'">
-                  {{ tariff.is_active ? 'active' : 'disabled' }}
-                </span>
-              </td>
-              <td>
-                <div class="row-actions">
-                  <button class="admin-link-button" type="button" @click="openEdit(tariff)">
-                    Изменить
-                  </button>
-
-                  <button
-                    v-if="tariff.is_active"
-                    class="admin-ghost"
-                    type="button"
-                    @click="toggle(tariff.id, false)"
-                  >
-                    Отключить
-                  </button>
-
-                  <button
-                    v-else
-                    class="admin-ghost"
-                    type="button"
-                    @click="toggle(tariff.id, true)"
-                  >
-                    Включить
-                  </button>
-
-                  <button class="admin-danger" type="button" @click="remove(tariff)">
-                    Удалить
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <p v-else class="empty-state">Тарифы не найдены.</p>
-    </section>
-
-    <div v-if="modalOpen" class="modal-backdrop" @click.self="closeModal">
-      <section class="modal-card tariff-modal">
-        <header class="modal-header">
-          <h2>{{ editingId ? 'Изменить тариф' : 'Добавить тариф' }}</h2>
-          <button class="admin-ghost" type="button" @click="closeModal">×</button>
-        </header>
-
-        <form class="modal-body" @submit.prevent="save">
-          <div class="form-grid">
-            <label class="form-field">
-              <span>Код тарифа</span>
-              <input v-model.trim="form.code" class="admin-input" required placeholder="Например: month_500" />
-            </label>
-
-            <label class="form-field">
-              <span>Название</span>
-              <input v-model.trim="form.title" class="admin-input" required placeholder="Например: 1 месяц" />
-            </label>
-
-            <label class="form-field">
-              <span>Базовая цена, ₽</span>
-              <input
-                v-model.number="form.price_rub"
-                class="admin-input"
-                type="number"
-                min="0"
-                required
-                placeholder="299"
-              />
-            </label>
-
-            <label class="form-field">
-              <span>Длительность, дней</span>
-              <input v-model.number="form.duration_days" class="admin-input" type="number" min="1" required placeholder="30" />
-            </label>
-
-            <label class="form-field">
-              <span>Период трафика, дней</span>
-              <input v-model.number="form.period_days" class="admin-input" type="number" min="1" required placeholder="30" />
-            </label>
-
-            <label class="form-field">
-              <span>Лимит, ГБ</span>
-              <input v-model.number="form.traffic_limit_gb" class="admin-input" type="number" min="1" required placeholder="500" />
-            </label>
-
-            <label class="form-field">
-              <span>Порядок сортировки</span>
-              <input v-model.number="form.sort_order" class="admin-input" type="number" placeholder="100" />
-            </label>
-
-            <label class="form-field">
-              <span>Статус</span>
-              <select v-model="form.is_active" class="admin-select">
-                <option :value="true">Активен</option>
-                <option :value="false">Отключён</option>
-              </select>
-            </label>
-
-            <label class="form-field wide">
-              <span>Описание</span>
-              <textarea
-                v-model.trim="form.description"
-                class="admin-textarea"
-                placeholder="Короткое описание тарифа"
-              />
-            </label>
-          </div>
-
-          <section class="payment-settings">
-            <h3>Способы оплаты</h3>
-
-            <article class="payment-setting-card">
-              <label class="switch-row">
-                <input v-model="form.enable_stars" type="checkbox" />
-                <span>
-                  <strong>Telegram Stars</strong>
-                  <small>Отдельная цена в звёздах</small>
-                </span>
-              </label>
-
-              <label class="form-field">
-                <span>Цена в Stars</span>
-                <input
-                  v-model.number="form.stars_amount"
-                  class="admin-input"
-                  type="number"
-                  min="1"
-                  placeholder="299"
-                  :disabled="!form.enable_stars"
-                />
-              </label>
-            </article>
-
-            <article class="payment-setting-card">
-              <label class="switch-row">
-                <input v-model="form.enable_cryptobot_crypto" type="checkbox" />
-                <span>
-                  <strong>CryptoBot — крипта</strong>
-                  <small>Инвойс CryptoBot в рублёвой цене с выбором активов</small>
-                </span>
-              </label>
-
-              <label class="form-field">
-                <span>Цена, ₽</span>
-                <input
-                  v-model.number="form.cryptobot_crypto_price_rub"
-                  class="admin-input"
-                  type="number"
-                  min="1"
-                  placeholder="299"
-                  :disabled="!form.enable_cryptobot_crypto"
-                />
-              </label>
-
-              <label class="form-field wide">
-                <span>Активы через запятую</span>
-                <input
-                  v-model.trim="form.cryptobot_crypto_assets"
-                  class="admin-input"
-                  placeholder="USDT, TON, BTC, ETH, LTC, BNB, TRX, USDC"
-                  :disabled="!form.enable_cryptobot_crypto"
-                />
-              </label>
-            </article>
-
-            <article class="payment-setting-card">
-              <label class="switch-row">
-                <input v-model="form.enable_cryptobot_rub" type="checkbox" />
-                <span>
-                  <strong>CryptoBot — рубли</strong>
-                  <small>Отдельный рублёвый способ оплаты</small>
-                </span>
-              </label>
-
-              <label class="form-field">
-                <span>Цена, ₽</span>
-                <input
-                  v-model.number="form.cryptobot_rub_price_rub"
-                  class="admin-input"
-                  type="number"
-                  min="1"
-                  placeholder="299"
-                  :disabled="!form.enable_cryptobot_rub"
-                />
-              </label>
-            </article>
-          </section>
-
-          <div class="modal-actions">
-            <button class="admin-ghost" type="button" @click="closeModal">Отмена</button>
-            <button class="admin-button" type="submit" :disabled="saving">
-              {{ saving ? 'Сохраняем…' : editingId ? 'Сохранить изменения' : 'Добавить тариф' }}
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>
-  </AdminLayout>
-</template>
-
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import AdminLayout from './AdminLayout.vue'
@@ -292,313 +8,752 @@ import {
   enableTariff,
   listTariffs,
   updateTariff,
+  type CreateTariffInput,
   type Tariff,
-  type TariffPrice,
+  type TariffPaymentSettingsInput,
 } from '../../api/admin'
-import { bytesToGB, formatBytesGB, formatRub } from '../../api/client'
+import { bytesToGB, formatBytesGB } from '../../api/client'
+
+type TariffForm = {
+  id: number | null
+  code: string
+  title: string
+  description: string
+  duration_days: number
+  period_days: number
+  traffic_limit_gb: number
+  price_rub: number
+  is_active: boolean
+  sort_order: number
+  payment_settings: TariffPaymentSettingsInput
+}
 
 const tariffs = ref<Tariff[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
-const modalOpen = ref(false)
-const editingId = ref<number | null>(null)
-const search = ref('')
-const statusFilter = ref('')
+const success = ref('')
 
-const form = reactive({
-  code: '',
-  title: '',
-  description: '',
+const defaultAssets = 'USDT, TON, BTC, ETH, LTC, BNB, TRX, USDC'
+
+const form = reactive<TariffForm>({
+  id: null,
+  code: 'vpn_1m_300gb',
+  title: '1 месяц',
+  description: 'Доступ на 30 дней, 300 ГБ на период',
   duration_days: 30,
   period_days: 30,
-  traffic_limit_gb: 500,
-  price_rub: 299,
+  traffic_limit_gb: 300,
+  price_rub: 65,
   is_active: true,
-  sort_order: 100,
-
-  enable_stars: false,
-  stars_amount: 299,
-
-  enable_cryptobot_crypto: false,
-  cryptobot_crypto_price_rub: 299,
-  cryptobot_crypto_assets: 'USDT, TON, BTC, ETH, LTC, BNB, TRX, USDC',
-
-  enable_cryptobot_rub: false,
-  cryptobot_rub_price_rub: 299,
+  sort_order: 10,
+  payment_settings: {
+    telegram_stars: {
+      enabled: true,
+      stars_amount: 50,
+    },
+    cryptobot_crypto: {
+      enabled: true,
+      price_rub: 65,
+      accepted_assets: assetsFromString(defaultAssets),
+    },
+    tribute_rub: {
+      enabled: false,
+      price_rub: 65,
+    },
+  },
 })
 
-const filteredTariffs = computed(() => {
-  const q = search.value.toLowerCase()
+const isEditing = computed(() => Boolean(form.id))
 
-  return tariffs.value.filter((tariff) => {
-    const statusOk =
-      !statusFilter.value ||
-      (statusFilter.value === 'active' && tariff.is_active) ||
-      (statusFilter.value === 'disabled' && !tariff.is_active)
+const activeTariffs = computed(() => tariffs.value.filter((item) => item.is_active))
+const inactiveTariffs = computed(() => tariffs.value.filter((item) => !item.is_active))
 
-    const queryOk =
-      !q ||
-      tariff.code.toLowerCase().includes(q) ||
-      tariff.title.toLowerCase().includes(q) ||
-      (tariff.description || '').toLowerCase().includes(q)
-
-    return statusOk && queryOk
-  })
-})
-
-onMounted(load)
-
-async function load() {
+async function loadTariffs() {
   loading.value = true
   error.value = ''
 
   try {
     tariffs.value = await listTariffs()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Не удалось загрузить тарифы'
+  } catch (err: any) {
+    error.value = err?.response?.data?.error || err?.message || 'Не удалось загрузить тарифы'
   } finally {
     loading.value = false
   }
 }
 
-function paymentLabels(tariff: Tariff): string[] {
-  const prices = tariff.prices || []
-  const labels: string[] = []
+function preset(months: 1 | 2 | 3) {
+  if (months === 1) {
+    Object.assign(form, {
+      id: null,
+      code: 'vpn_1m_300gb',
+      title: '1 месяц',
+      description: 'Доступ на 30 дней, 300 ГБ на период',
+      duration_days: 30,
+      period_days: 30,
+      traffic_limit_gb: 300,
+      price_rub: 65,
+      is_active: true,
+      sort_order: 10,
+      payment_settings: {
+        telegram_stars: { enabled: true, stars_amount: 50 },
+        cryptobot_crypto: { enabled: true, price_rub: 65, accepted_assets: assetsFromString(defaultAssets) },
+        tribute_rub: { enabled: false, price_rub: 65 },
+      },
+    })
+  }
 
-  if (prices.some((price) => price.provider === 'telegram' && price.payment_method === 'stars')) {
-    labels.push('Stars')
-  }
-  if (prices.some((price) => price.provider === 'cryptobot' && price.payment_method === 'crypto')) {
-    labels.push('CryptoBot crypto')
-  }
-  if (prices.some((price) => price.provider === 'cryptobot' && price.payment_method === 'rub')) {
-    labels.push('CryptoBot RUB')
+  if (months === 2) {
+    Object.assign(form, {
+      id: null,
+      code: 'vpn_2m_300gb',
+      title: '2 месяца',
+      description: 'Доступ на 60 дней, 300 ГБ на период',
+      duration_days: 60,
+      period_days: 30,
+      traffic_limit_gb: 300,
+      price_rub: 140,
+      is_active: true,
+      sort_order: 20,
+      payment_settings: {
+        telegram_stars: { enabled: true, stars_amount: 100 },
+        cryptobot_crypto: { enabled: true, price_rub: 130, accepted_assets: assetsFromString(defaultAssets) },
+        tribute_rub: { enabled: true, price_rub: 140 },
+      },
+    })
   }
 
-  return labels
+  if (months === 3) {
+    Object.assign(form, {
+      id: null,
+      code: 'vpn_3m_300gb',
+      title: '3 месяца',
+      description: 'Доступ на 90 дней, 300 ГБ на период',
+      duration_days: 90,
+      period_days: 30,
+      traffic_limit_gb: 300,
+      price_rub: 210,
+      is_active: true,
+      sort_order: 30,
+      payment_settings: {
+        telegram_stars: { enabled: true, stars_amount: 150 },
+        cryptobot_crypto: { enabled: true, price_rub: 195, accepted_assets: assetsFromString(defaultAssets) },
+        tribute_rub: { enabled: true, price_rub: 210 },
+      },
+    })
+  }
+
+  success.value = ''
+  error.value = ''
 }
 
-function openCreate() {
-  editingId.value = null
+function editTariff(tariff: Tariff) {
+  const stars = findPrice(tariff, 'telegram_stars', 'stars')
+  const crypto = findPrice(tariff, 'crypto_bot', 'crypto')
+  const tribute = findPrice(tariff, 'tribute', 'rub')
 
   Object.assign(form, {
-    code: '',
-    title: '',
-    description: '',
-    duration_days: 30,
-    period_days: 30,
-    traffic_limit_gb: 500,
-    price_rub: 299,
-    is_active: true,
-    sort_order: 100,
-
-    enable_stars: false,
-    stars_amount: 299,
-
-    enable_cryptobot_crypto: false,
-    cryptobot_crypto_price_rub: 299,
-    cryptobot_crypto_assets: 'USDT, TON, BTC, ETH, LTC, BNB, TRX, USDC',
-
-    enable_cryptobot_rub: false,
-    cryptobot_rub_price_rub: 299,
-  })
-
-  modalOpen.value = true
-}
-
-function openEdit(tariff: Tariff) {
-  editingId.value = tariff.id
-
-  const stars = findPrice(tariff, 'telegram', 'stars')
-  const crypto = findPrice(tariff, 'cryptobot', 'crypto')
-  const rub = findPrice(tariff, 'cryptobot', 'rub')
-
-  Object.assign(form, {
+    id: tariff.id,
     code: tariff.code,
     title: tariff.title,
     description: tariff.description || '',
     duration_days: tariff.duration_days,
     period_days: tariff.period_days,
     traffic_limit_gb: bytesToGB(tariff.traffic_limit_bytes),
-    price_rub: tariff.price_rub || 0,
+    price_rub: rubFromMinor(tariff.price_rub),
     is_active: tariff.is_active,
     sort_order: tariff.sort_order,
-
-    enable_stars: Boolean(stars),
-    stars_amount: stars?.stars_amount || tariff.price_rub || 299,
-
-    enable_cryptobot_crypto: Boolean(crypto),
-    cryptobot_crypto_price_rub: crypto?.amount_minor ? Math.round(crypto.amount_minor / 100) : tariff.price_rub || 299,
-    cryptobot_crypto_assets: crypto?.accepted_assets?.length
-      ? crypto.accepted_assets.join(', ')
-      : 'USDT, TON, BTC, ETH, LTC, BNB, TRX, USDC',
-
-    enable_cryptobot_rub: Boolean(rub),
-    cryptobot_rub_price_rub: rub?.amount_minor ? Math.round(rub.amount_minor / 100) : tariff.price_rub || 299,
+    payment_settings: {
+      telegram_stars: {
+        enabled: Boolean(stars?.is_active),
+        stars_amount: Number(stars?.stars_amount || 0),
+      },
+      cryptobot_crypto: {
+        enabled: Boolean(crypto?.is_active),
+        price_rub: rubFromMinor(crypto?.amount_minor || 0),
+        accepted_assets: crypto?.accepted_assets?.length ? crypto.accepted_assets : assetsFromString(defaultAssets),
+      },
+      tribute_rub: {
+        enabled: Boolean(tribute?.is_active),
+        price_rub: rubFromMinor(tribute?.amount_minor || 0),
+      },
+    },
   })
 
-  modalOpen.value = true
+  success.value = ''
+  error.value = ''
 }
 
-function findPrice(tariff: Tariff, provider: string, method: string): TariffPrice | undefined {
-  return (tariff.prices || []).find((price) => price.provider === provider && price.payment_method === method)
+function resetForm() {
+  preset(1)
 }
 
-function closeModal() {
-  modalOpen.value = false
-}
-
-function buildPaymentSettings() {
-  return {
-    telegram_stars: {
-      enabled: form.enable_stars,
-      stars_amount: Number(form.stars_amount || 0),
-    },
-    cryptobot_crypto: {
-      enabled: form.enable_cryptobot_crypto,
-      price_rub: Number(form.cryptobot_crypto_price_rub || 0),
-      accepted_assets: form.cryptobot_crypto_assets
-        .split(',')
-        .map((item) => item.trim().toUpperCase())
-        .filter(Boolean),
-    },
-    cryptobot_rub: {
-      enabled: form.enable_cryptobot_rub,
-      price_rub: Number(form.cryptobot_rub_price_rub || 0),
-    },
-  }
-}
-
-async function save() {
+async function saveTariff() {
   saving.value = true
   error.value = ''
+  success.value = ''
 
   try {
-    const payload = {
-      code: form.code,
-      title: form.title,
-      description: form.description || null,
-      duration_days: form.duration_days,
-      period_days: form.period_days,
-      traffic_limit_gb: form.traffic_limit_gb,
-      price_rub: form.price_rub,
-      is_active: form.is_active,
-      sort_order: form.sort_order,
-      payment_settings: buildPaymentSettings(),
-    }
+    const payload = buildPayload()
 
-    if (editingId.value) {
-      await updateTariff(editingId.value, payload)
+    if (form.id) {
+      await updateTariff(form.id, payload)
+      success.value = 'Тариф обновлён'
     } else {
-      await createTariff(payload)
+      await createTariff(payload as CreateTariffInput)
+      success.value = 'Тариф создан'
     }
 
-    closeModal()
-    await load()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Не удалось сохранить тариф'
+    await loadTariffs()
+  } catch (err: any) {
+    error.value = err?.response?.data?.error || err?.message || 'Не удалось сохранить тариф'
   } finally {
     saving.value = false
   }
 }
 
-async function toggle(id: number, active: boolean) {
+async function toggleTariff(tariff: Tariff) {
   error.value = ''
+  success.value = ''
 
   try {
-    if (active) {
-      await enableTariff(id)
+    if (tariff.is_active) {
+      await disableTariff(tariff.id)
+      success.value = 'Тариф выключен'
     } else {
-      await disableTariff(id)
+      await enableTariff(tariff.id)
+      success.value = 'Тариф включён'
     }
 
-    await load()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Не удалось изменить статус тарифа'
+    await loadTariffs()
+  } catch (err: any) {
+    error.value = err?.response?.data?.error || err?.message || 'Не удалось изменить статус тарифа'
   }
 }
 
-async function remove(tariff: Tariff) {
-  const ok = window.confirm(`Удалить тариф "${tariff.title}"? Он будет скрыт из списка, но история подписок сохранится.`)
-  if (!ok) return
+async function removeTariff(tariff: Tariff) {
+  if (!confirm(`Удалить тариф "${tariff.title}"?`)) return
 
   error.value = ''
+  success.value = ''
 
   try {
     await deleteTariff(tariff.id)
-    await load()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Не удалось удалить тариф'
+    success.value = 'Тариф удалён'
+    await loadTariffs()
+
+    if (form.id === tariff.id) resetForm()
+  } catch (err: any) {
+    error.value = err?.response?.data?.error || err?.message || 'Не удалось удалить тариф'
   }
 }
+
+function buildPayload(): CreateTariffInput {
+  return {
+    code: form.code.trim(),
+    title: form.title.trim(),
+    description: form.description.trim() || null,
+    duration_days: Number(form.duration_days),
+    period_days: Number(form.period_days),
+    traffic_limit_gb: Number(form.traffic_limit_gb),
+    price_rub: Number(form.price_rub),
+    is_active: Boolean(form.is_active),
+    sort_order: Number(form.sort_order),
+    payment_settings: {
+      telegram_stars: {
+        enabled: Boolean(form.payment_settings.telegram_stars.enabled),
+        stars_amount: Number(form.payment_settings.telegram_stars.stars_amount),
+      },
+      cryptobot_crypto: {
+        enabled: Boolean(form.payment_settings.cryptobot_crypto.enabled),
+        price_rub: Number(form.payment_settings.cryptobot_crypto.price_rub),
+        accepted_assets: assetsFromString(form.payment_settings.cryptobot_crypto.accepted_assets.join(', ')),
+      },
+      tribute_rub: {
+        enabled: Boolean(form.payment_settings.tribute_rub.enabled),
+        price_rub: Number(form.payment_settings.tribute_rub.price_rub),
+      },
+    },
+  }
+}
+
+function findPrice(tariff: Tariff, provider: string, method: string) {
+  return tariff.prices?.find((item) => item.provider === provider && item.payment_method === method)
+}
+
+function rubFromMinor(value: number | null | undefined) {
+  return Math.round(Number(value || 0) / 100)
+}
+
+function assetsFromString(value: string): string[] {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean)
+}
+
+function priceSummary(tariff: Tariff) {
+  const stars = findPrice(tariff, 'telegram_stars', 'stars')
+  const crypto = findPrice(tariff, 'crypto_bot', 'crypto')
+  const tribute = findPrice(tariff, 'tribute', 'rub')
+
+  const items: string[] = []
+
+  if (stars?.is_active) items.push(`${stars.stars_amount} ⭐`)
+  if (crypto?.is_active) items.push(`${rubFromMinor(crypto.amount_minor)} ₽ CryptoBot`)
+  if (tribute?.is_active) items.push(`${rubFromMinor(tribute.amount_minor)} ₽ Tribute`)
+
+  return items.length ? items.join(' · ') : 'Нет активных способов оплаты'
+}
+
+onMounted(loadTariffs)
 </script>
 
-<style src="./admin.css"></style>
+<template>
+  <AdminLayout>
+    <section class="tariffs-page">
+      <div class="page-head">
+        <div>
+          <h1>Тарифы</h1>
+          <p>
+            Управление сроком, лимитом и способами оплаты: Telegram Stars, CryptoBot crypto и Tribute RUB.
+          </p>
+        </div>
+
+        <button class="btn btn-primary" type="button" @click="resetForm">
+          + Новый тариф
+        </button>
+      </div>
+
+      <div class="preset-row">
+        <button class="pill" type="button" @click="preset(1)">
+          1 месяц · 50⭐ · 65₽ crypto
+        </button>
+        <button class="pill" type="button" @click="preset(2)">
+          2 месяца · 100⭐ · 130₽ crypto · 140₽ Tribute
+        </button>
+        <button class="pill" type="button" @click="preset(3)">
+          3 месяца · 150⭐ · 195₽ crypto · 210₽ Tribute
+        </button>
+      </div>
+
+      <p v-if="error" class="alert alert-error">{{ error }}</p>
+      <p v-if="success" class="alert alert-success">{{ success }}</p>
+
+      <div class="grid">
+        <form class="panel form-panel" @submit.prevent="saveTariff">
+          <div class="section-title">
+            <h2>{{ isEditing ? 'Редактировать тариф' : 'Создать тариф' }}</h2>
+            <span>{{ isEditing ? `ID ${form.id}` : 'новый' }}</span>
+          </div>
+
+          <div class="form-grid">
+            <label>
+              Код
+              <input v-model="form.code" placeholder="vpn_1m_300gb" />
+            </label>
+
+            <label>
+              Название
+              <input v-model="form.title" placeholder="1 месяц" />
+            </label>
+
+            <label class="full">
+              Описание
+              <textarea v-model="form.description" placeholder="Доступ на 30 дней, 300 ГБ на период"></textarea>
+            </label>
+
+            <label>
+              Длительность, дней
+              <input v-model.number="form.duration_days" type="number" min="1" />
+            </label>
+
+            <label>
+              Период трафика, дней
+              <input v-model.number="form.period_days" type="number" min="1" />
+            </label>
+
+            <label>
+              Лимит, ГБ
+              <input v-model.number="form.traffic_limit_gb" type="number" min="1" />
+            </label>
+
+            <label>
+              Базовая цена, ₽
+              <input v-model.number="form.price_rub" type="number" min="0" />
+            </label>
+
+            <label>
+              Сортировка
+              <input v-model.number="form.sort_order" type="number" />
+            </label>
+
+            <label class="check-line">
+              <input v-model="form.is_active" type="checkbox" />
+              Тариф активен
+            </label>
+          </div>
+
+          <h3>Способы оплаты</h3>
+
+          <div class="payment-card">
+            <label class="payment-check">
+              <input v-model="form.payment_settings.telegram_stars.enabled" type="checkbox" />
+              <span>
+                <strong>Telegram Stars</strong>
+                <small>Отдельная цена в звёздах</small>
+              </span>
+            </label>
+
+            <label>
+              Цена в Stars
+              <input v-model.number="form.payment_settings.telegram_stars.stars_amount" type="number" min="1" />
+            </label>
+          </div>
+
+          <div class="payment-card">
+            <label class="payment-check">
+              <input v-model="form.payment_settings.cryptobot_crypto.enabled" type="checkbox" />
+              <span>
+                <strong>CryptoBot — крипта</strong>
+                <small>Рублёвая цена инвойса, оплата активами</small>
+              </span>
+            </label>
+
+            <label>
+              Цена, ₽
+              <input v-model.number="form.payment_settings.cryptobot_crypto.price_rub" type="number" min="1" />
+            </label>
+
+            <label class="full">
+              Активы через запятую
+              <input
+                :value="form.payment_settings.cryptobot_crypto.accepted_assets.join(', ')"
+                @input="form.payment_settings.cryptobot_crypto.accepted_assets = assetsFromString(($event.target as HTMLInputElement).value)"
+                placeholder="USDT, TON, BTC, ETH, LTC, BNB, TRX, USDC"
+              />
+            </label>
+          </div>
+
+          <div class="payment-card">
+            <label class="payment-check">
+              <input v-model="form.payment_settings.tribute_rub.enabled" type="checkbox" />
+              <span>
+                <strong>Tribute — рубли</strong>
+                <small>Отдельный рублёвый способ оплаты</small>
+              </span>
+            </label>
+
+            <label>
+              Цена, ₽
+              <input v-model.number="form.payment_settings.tribute_rub.price_rub" type="number" min="1" />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button class="btn btn-primary" :disabled="saving" type="submit">
+              {{ saving ? 'Сохраняю...' : 'Сохранить тариф' }}
+            </button>
+
+            <button class="btn btn-muted" type="button" @click="resetForm">
+              Сбросить
+            </button>
+          </div>
+        </form>
+
+        <section class="panel list-panel">
+          <div class="section-title">
+            <h2>Активные тарифы</h2>
+            <button class="btn btn-muted" type="button" @click="loadTariffs">
+              Обновить
+            </button>
+          </div>
+
+          <p v-if="loading" class="muted">Загрузка...</p>
+
+          <article v-for="tariff in activeTariffs" :key="tariff.id" class="tariff-row">
+            <div>
+              <div class="row-title">
+                <strong>{{ tariff.title }}</strong>
+                <span>{{ tariff.code }}</span>
+              </div>
+              <p>{{ tariff.duration_days }} дн. · {{ formatBytesGB(tariff.traffic_limit_bytes) }} · {{ priceSummary(tariff) }}</p>
+            </div>
+
+            <div class="row-actions">
+              <button class="btn btn-muted" type="button" @click="editTariff(tariff)">
+                Изменить
+              </button>
+              <button class="btn btn-muted" type="button" @click="toggleTariff(tariff)">
+                Выкл.
+              </button>
+              <button class="btn btn-danger" type="button" @click="removeTariff(tariff)">
+                Удалить
+              </button>
+            </div>
+          </article>
+
+          <div v-if="inactiveTariffs.length" class="inactive">
+            <h3>Выключенные</h3>
+
+            <article v-for="tariff in inactiveTariffs" :key="tariff.id" class="tariff-row">
+              <div>
+                <div class="row-title">
+                  <strong>{{ tariff.title }}</strong>
+                  <span>{{ tariff.code }}</span>
+                </div>
+                <p>{{ priceSummary(tariff) }}</p>
+              </div>
+
+              <div class="row-actions">
+                <button class="btn btn-muted" type="button" @click="editTariff(tariff)">
+                  Изменить
+                </button>
+                <button class="btn btn-primary" type="button" @click="toggleTariff(tariff)">
+                  Вкл.
+                </button>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+    </section>
+  </AdminLayout>
+</template>
+
 <style scoped>
-.payment-badges {
+.tariffs-page {
+  padding: 34px;
+  color: #f7fbff;
+}
+
+.page-head,
+.section-title,
+.actions,
+.row-actions,
+.row-title,
+.preset-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-
-.tariff-modal {
-  width: min(980px, calc(100vw - 28px));
-}
-
-.payment-settings {
-  display: grid;
+  align-items: center;
   gap: 14px;
+}
+
+.page-head,
+.section-title {
+  justify-content: space-between;
+}
+
+.page-head h1 {
+  margin: 0;
+  font-size: 52px;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.page-head p,
+.muted,
+.tariff-row p,
+.payment-check small {
+  color: #9fb1c7;
+}
+
+.preset-row {
+  flex-wrap: wrap;
+  margin: 24px 0;
+}
+
+.pill,
+.btn {
+  border: 0;
+  border-radius: 16px;
+  padding: 14px 18px;
+  color: #fff;
+  background: rgba(20, 31, 52, 0.92);
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.pill {
+  border: 1px solid rgba(36, 170, 255, 0.28);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
+  gap: 24px;
+}
+
+.panel {
+  border: 1px solid rgba(139, 171, 218, 0.18);
+  border-radius: 28px;
+  background: rgba(8, 15, 31, 0.88);
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.24);
+}
+
+.form-panel,
+.list-panel {
+  padding: 28px;
+}
+
+.section-title h2 {
+  margin: 0;
+  font-size: 30px;
+}
+
+.section-title span {
+  color: #7ddcff;
+  font-weight: 900;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
   margin-top: 24px;
 }
 
-.payment-settings h3 {
-  margin: 0;
-  color: #f8fafc;
-  font-size: 22px;
-}
-
-.payment-setting-card {
+label {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(220px, 0.75fr);
-  gap: 14px;
-  align-items: end;
-  padding: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 20px;
-  background: rgba(15, 23, 42, 0.42);
+  gap: 8px;
+  color: #aebbd0;
+  font-weight: 900;
 }
 
-.payment-setting-card .wide {
+.full {
   grid-column: 1 / -1;
 }
 
-.switch-row {
+input,
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(139, 171, 218, 0.2);
+  border-radius: 16px;
+  padding: 16px;
+  color: #fff;
+  background: #040a19;
+  font: inherit;
+}
+
+textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.check-line,
+.payment-check {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  color: #f8fafc;
+  gap: 14px;
 }
 
-.switch-row input {
-  width: 20px;
-  height: 20px;
-  accent-color: #0ea5e9;
+.check-line input,
+.payment-check input {
+  width: 22px;
+  height: 22px;
 }
 
-.switch-row span {
+h3 {
+  margin: 26px 0 14px;
+}
+
+.payment-card {
   display: grid;
-  gap: 4px;
+  grid-template-columns: minmax(240px, 1fr) minmax(200px, 0.8fr);
+  gap: 18px;
+  margin-top: 16px;
+  padding: 22px;
+  border: 1px solid rgba(139, 171, 218, 0.14);
+  border-radius: 24px;
+  background: rgba(11, 22, 42, 0.78);
 }
 
-.switch-row small {
-  color: #94a3b8;
+.payment-check span {
+  display: grid;
+  gap: 6px;
 }
 
-@media (max-width: 760px) {
-  .payment-setting-card {
+.btn-primary {
+  background: linear-gradient(135deg, #1599ff, #075ee8);
+}
+
+.btn-muted {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btn-danger {
+  background: rgba(105, 29, 47, 0.9);
+}
+
+.alert {
+  padding: 18px 20px;
+  border-radius: 18px;
+  font-weight: 800;
+}
+
+.alert-error {
+  color: #ffd4d4;
+  background: rgba(105, 29, 47, 0.45);
+  border: 1px solid rgba(255, 80, 107, 0.28);
+}
+
+.alert-success {
+  color: #c9ffe4;
+  background: rgba(22, 132, 72, 0.36);
+  border: 1px solid rgba(45, 220, 130, 0.28);
+}
+
+.tariff-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px 0;
+  border-bottom: 1px solid rgba(139, 171, 218, 0.1);
+}
+
+.tariff-row:last-child {
+  border-bottom: 0;
+}
+
+.row-title strong {
+  font-size: 22px;
+}
+
+.row-title span {
+  color: #7ddcff;
+}
+
+.inactive {
+  margin-top: 26px;
+  opacity: 0.75;
+}
+
+@media (max-width: 1180px) {
+  .grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .tariffs-page {
+    padding: 18px;
+  }
+
+  .page-head,
+  .section-title,
+  .tariff-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .form-grid,
+  .payment-card {
+    grid-template-columns: 1fr;
+  }
+
+  .row-actions {
+    flex-wrap: wrap;
   }
 }
 </style>

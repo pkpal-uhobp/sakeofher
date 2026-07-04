@@ -12,11 +12,11 @@ import (
 )
 
 type workerService struct {
-	repo          *repository.Repositories
-	subscriptions SubscriptionService
-	payments      PaymentService
-	notifications NotificationService
-	log           *zap.Logger
+	repo           *repository.Repositories
+	subscriptions  SubscriptionService
+	payments       PaymentService
+	notifications  NotificationService
+	log            *zap.Logger
 }
 
 func NewWorkerService(
@@ -33,9 +33,9 @@ func NewWorkerService(
 	return &workerService{
 		repo:           repo,
 		subscriptions: subscriptions,
-		payments:       payments,
-		notifications:  notifications,
-		log:            log,
+		payments:      payments,
+		notifications: notifications,
+		log:           log,
 	}
 }
 
@@ -57,6 +57,10 @@ func (s *workerService) SyncUsage(ctx context.Context) error {
 
 func (s *workerService) ResetTrafficPeriods(ctx context.Context) error {
 	return s.subscriptions.ResetTrafficPeriods(ctx, 100)
+}
+
+func (s *workerService) ReconcileRemnaState(ctx context.Context) error {
+	return s.subscriptions.ReconcileRemnaState(ctx, 100)
 }
 
 func (s *workerService) NotifyExpiringAndTraffic(ctx context.Context) error {

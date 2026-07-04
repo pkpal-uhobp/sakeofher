@@ -124,7 +124,7 @@ export interface TariffPaymentSettingsInput {
     price_rub: number
     accepted_assets: string[]
   }
-  cryptobot_rub: {
+  tribute_rub: {
     enabled: boolean
     price_rub: number
   }
@@ -178,7 +178,7 @@ export interface UpdateUserInput {
 }
 
 export async function getMe(): Promise<AuthMe> {
-  const { data } = await api.get<AuthMe>('/auth/me')
+  const { data } = await api.get('/auth/me')
   return data
 }
 
@@ -197,43 +197,41 @@ export async function createUser(input: CreateUserInput): Promise<User> {
     telegram_username: normalizeUsername(input.telegram_username),
   })
 
-  const { data } = await api.post<User>('/users/telegram', payload)
+  const { data } = await api.post('/users/telegram', payload)
   return data
 }
 
 export async function listRemnawaveInternalSquads(): Promise<RemnaInternalSquad[]> {
-  const { data } = await api.get<RemnaInternalSquad[]>('/remnawave/internal-squads')
+  const { data } = await api.get('/remnawave/internal-squads')
   return data
 }
 
 export async function getUser(id: number): Promise<User> {
-  const { data } = await api.get<User>(`/users/${id}`)
+  const { data } = await api.get(`/users/${id}`)
   return data
 }
 
 export async function updateUser(id: number, input: UpdateUserInput): Promise<User> {
-  const { data } = await api.patch<User>(`/users/${id}`, cleanParams(input))
+  const { data } = await api.patch(`/users/${id}`, cleanParams(input))
   return data
 }
 
 export async function blockUser(id: number): Promise<User> {
-  const { data } = await api.post<User>(`/users/${id}/block`)
+  const { data } = await api.post(`/users/${id}/block`)
   return data
 }
 
 export async function unblockUser(id: number): Promise<User> {
-  const { data } = await api.post<User>(`/users/${id}/unblock`)
+  const { data } = await api.post(`/users/${id}/unblock`)
   return data
 }
 
 export async function deleteUser(id: number): Promise<User | null> {
   try {
-    const { data } = await api.post<User>(`/users/${id}/delete`)
+    const { data } = await api.post(`/users/${id}/delete`)
     return data
   } catch (err: any) {
-    if (err?.response?.status === 404) {
-      return null
-    }
+    if (err?.response?.status === 404) return null
     throw err
   }
 }
@@ -244,37 +242,37 @@ export async function listSubscriptions(filters: SubscriptionFilters = {}): Prom
 }
 
 export async function getSubscription(id: number): Promise<PublicSubscription> {
-  const { data } = await api.get<PublicSubscription>(`/subscriptions/${id}`)
+  const { data } = await api.get(`/subscriptions/${id}`)
   return data
 }
 
 export async function createManualSubscription(input: CreateManualSubscriptionInput): Promise<PublicSubscription> {
-  const { data } = await api.post<PublicSubscription>('/subscriptions', input)
+  const { data } = await api.post('/subscriptions', input)
   return data
 }
 
 export async function extendSubscription(id: number, input: ExtendSubscriptionInput): Promise<PublicSubscription> {
-  const { data } = await api.post<PublicSubscription>(`/subscriptions/${id}/extend`, cleanParams(input))
+  const { data } = await api.post(`/subscriptions/${id}/extend`, cleanParams(input))
   return data
 }
 
 export async function updateTrafficLimit(id: number, input: UpdateTrafficLimitInput): Promise<PublicSubscription> {
-  const { data } = await api.patch<PublicSubscription>(`/subscriptions/${id}/traffic-limit`, input)
+  const { data } = await api.patch(`/subscriptions/${id}/traffic-limit`, input)
   return data
 }
 
 export async function disableSubscription(id: number): Promise<PublicSubscription> {
-  const { data } = await api.post<PublicSubscription>(`/subscriptions/${id}/disable`)
+  const { data } = await api.post(`/subscriptions/${id}/disable`)
   return data
 }
 
 export async function enableSubscription(id: number): Promise<PublicSubscription> {
-  const { data } = await api.post<PublicSubscription>(`/subscriptions/${id}/enable`)
+  const { data } = await api.post(`/subscriptions/${id}/enable`)
   return data
 }
 
 export async function cancelSubscription(id: number): Promise<PublicSubscription> {
-  const { data } = await api.post<PublicSubscription>(`/subscriptions/${id}/cancel`)
+  const { data } = await api.post(`/subscriptions/${id}/cancel`)
   return data
 }
 
@@ -283,27 +281,27 @@ export async function deleteSubscription(id: number): Promise<void> {
 }
 
 export async function listTariffs(): Promise<Tariff[]> {
-  const { data } = await api.get<Tariff[]>('/tariffs/all')
+  const { data } = await api.get('/tariffs/all')
   return data
 }
 
 export async function createTariff(input: CreateTariffInput): Promise<Tariff> {
-  const { data } = await api.post<Tariff>('/tariffs', input)
+  const { data } = await api.post('/tariffs', input)
   return data
 }
 
 export async function updateTariff(id: number, input: UpdateTariffInput): Promise<Tariff> {
-  const { data } = await api.patch<Tariff>(`/tariffs/${id}`, cleanParams(input))
+  const { data } = await api.patch(`/tariffs/${id}`, cleanParams(input))
   return data
 }
 
 export async function enableTariff(id: number): Promise<Tariff> {
-  const { data } = await api.post<Tariff>(`/tariffs/${id}/enable`)
+  const { data } = await api.post(`/tariffs/${id}/enable`)
   return data
 }
 
 export async function disableTariff(id: number): Promise<Tariff> {
-  const { data } = await api.post<Tariff>(`/tariffs/${id}/disable`)
+  const { data } = await api.post(`/tariffs/${id}/disable`)
   return data
 }
 
@@ -316,7 +314,7 @@ function normalizeUsername(value: string | null | undefined): string | null {
   return username || null
 }
 
-function cleanParams<T extends Record<string, unknown>>(params: T): T {
+function cleanParams<T extends Record<string, any>>(params: T): T {
   const next = { ...params }
 
   for (const key of Object.keys(next)) {

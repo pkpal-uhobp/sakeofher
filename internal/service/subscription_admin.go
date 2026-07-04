@@ -74,7 +74,6 @@ func (s *subscriptionService) CreateManual(ctx context.Context, input domain.Cre
 	now := time.Now()
 	expiresAtPreview := now.AddDate(0, 0, tariff.DurationDays)
 
-	// External call first, outside long SQL tx.
 	remnaUser, err := s.ensureRemnaUserWithSquads(ctx, user, trafficLimitBytes, expiresAtPreview, squads)
 	if err != nil {
 		return nil, err

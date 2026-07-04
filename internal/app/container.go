@@ -44,12 +44,14 @@ func NewContainer(ctx context.Context) (*Container, error) {
 	}
 
 	repos := repository.NewRepositories(db)
+
 	gates := gateway.Gateways{
 		Remnawave: remnawave.NewClient(cfg.Remnawave.BaseURL, cfg.Remnawave.Token, cfg.Remnawave.Timeout),
 		Tribute:   tribute.NewClient(cfg.Tribute.APIKey, cfg.Tribute.Timeout),
 		CryptoBot: cryptobot.NewClient(cfg.CryptoBot.APIToken, cfg.CryptoBot.Timeout),
 		Telegram:  telegram.NewNotifier(cfg.Telegram.BotToken, log),
 	}
+
 	services := service.NewServices(
 		repos,
 		gates,
@@ -60,6 +62,7 @@ func NewContainer(ctx context.Context) (*Container, error) {
 		cfg.Admin.Password,
 		cfg.JWT.Secret,
 		cfg.JWT.AccessTTL,
+		log,
 	)
 
 	return &Container{Config: cfg, Log: log, Repositories: repos, Gateways: gates, Services: services, DB: db}, nil
@@ -69,6 +72,7 @@ func (c *Container) Close() {
 	if c.DB != nil {
 		c.DB.Close()
 	}
+
 	if c.Log != nil {
 		_ = c.Log.Sync()
 	}

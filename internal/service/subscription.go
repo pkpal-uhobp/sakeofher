@@ -92,7 +92,7 @@ func (s *subscriptionService) ActivateAfterPayment(ctx context.Context, paymentI
 			UUID:            remnaUser.UUID,
 			Username:        remnaUser.Username,
 			SubscriptionURL: remnaUser.SubscriptionURL,
-			Status:          domain.RemnaStatusActive,
+			Status:          domain.RemnaStatus("active"),
 		}); err != nil {
 			return err
 		}
@@ -230,7 +230,7 @@ func (s *subscriptionService) DisableExpiredSubscriptions(ctx context.Context, l
 			return err
 		}
 
-		_ = s.notifications.Send(ctx, item.User.TelegramID, "Ваша подписка закончилась.\nVPN временно отключён.\nПродлить можно в течение 7 дней.")
+		_ = s.notifications.Send(ctx, item.User.TelegramID, "Ваша подписка закончилась.\nДоступ временно отключён.\nПродлить можно в боте.")
 	}
 
 	return nil
@@ -255,7 +255,7 @@ func (s *subscriptionService) DeleteOldDisabledUsers(ctx context.Context, limit 
 			return err
 		}
 
-		_ = s.notifications.Send(ctx, u.TelegramID, "Ваша старая VPN-подписка удалена из-за отсутствия продления более 7 дней.\nВы можете купить новую подписку.")
+		_ = s.notifications.Send(ctx, u.TelegramID, "Ваша старая подписка удалена из-за отсутствия продления более 7 дней.\nВы можете купить новую подписку.")
 	}
 
 	return nil
@@ -297,7 +297,7 @@ func (s *subscriptionService) SyncRemnaUsage(ctx context.Context, limit int) err
 					return err
 				}
 
-				_ = s.notifications.Send(ctx, item.User.TelegramID, "Лимит трафика по VPN исчерпан.\nДоступ будет восстановлен после обновления периода или продления.")
+				_ = s.notifications.Send(ctx, item.User.TelegramID, "Лимит трафика исчерпан.\nДоступ будет восстановлен после обновления периода или продления.")
 			}
 
 			if err := s.repo.Subscriptions.MarkTrafficExhausted(ctx, item.Subscription.ID, used, now); err != nil {
@@ -332,7 +332,12 @@ func (s *subscriptionService) ResetTrafficPeriods(ctx context.Context, limit int
 			return err
 		}
 
-		nextEnd := now.AddDate(0, 0, item.Tariff.PeriodDays)
+		periodDays := item.Tariff.PeriodDays
+		if periodDays <= 0 {
+			periodDays = 30
+		}
+
+		nextEnd := now.AddDate(0, 0, periodDays)
 		if nextEnd.After(item.Subscription.ExpiresAt) {
 			nextEnd = item.Subscription.ExpiresAt
 		}
@@ -359,121 +364,11 @@ func (s *subscriptionService) ResetTrafficPeriods(ctx context.Context, limit int
 }
 
 func (s *subscriptionService) PurchaseFromSite(ctx context.Context, input domain.SitePurchaseInput) (*domain.PublicSubscription, error) {
-	if input.TelegramID <= 0 || input.TariffID <= 0 || input.TrafficLimitGB <= 0 {
-		return nil, domain.ErrInvalidInput
-	}
-
-	user, err := s.repo.Users.CreateOrUpdateTelegramUser(ctx, domain.TelegramUserInput{
-		TelegramID:        input.TelegramID,
-		TelegramUsername:  input.TelegramUsername,
-		TelegramFirstName: input.TelegramFirstName,
-		TelegramLastName:  input.TelegramLastName,
-		LanguageCode:      input.LanguageCode,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	tariff, err := s.repo.Tariffs.GetByID(ctx, input.TariffID)
-	if err != nil {
-		return nil, err
-	}
-
-	trafficLimitBytes := domain.TrafficGBToBytes(input.TrafficLimitGB)
-	now := time.Now()
-	expiresAtPreview := now.AddDate(0, 0, tariff.DurationDays)
-
-	remnaUser, err := s.ensureRemnaUserForSite(ctx, user, trafficLimitBytes, expiresAtPreview)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := s.repo.Tx.WithinTransaction(ctx, func(ctx context.Context) error {
-		lockedUser, err := s.repo.Users.GetByIDForUpdate(ctx, user.ID)
-		if err != nil {
-			return err
-		}
-
-		if err := s.repo.Users.SetRemnaData(ctx, lockedUser.ID, domain.RemnaUserData{
-			UUID:            remnaUser.UUID,
-			Username:        remnaUser.Username,
-			SubscriptionURL: remnaUser.SubscriptionURL,
-			Status:          domain.RemnaStatusActive,
-		}); err != nil {
-			return err
-		}
-
-		return s.createOrExtendSiteSubscription(ctx, lockedUser.ID, tariff, trafficLimitBytes, now)
-	}); err != nil {
-		return nil, err
-	}
-
-	return s.GetActiveByTelegramID(ctx, input.TelegramID)
+	return nil, domain.ErrInvalidInput
 }
 
 func (s *subscriptionService) RenewFromSite(ctx context.Context, input domain.SiteRenewInput) (*domain.PublicSubscription, error) {
-	var current *domain.PublicSubscription
-	var err error
-
-	if strings.TrimSpace(input.PublicToken) != "" {
-		current, err = s.GetPublicByToken(ctx, input.PublicToken)
-	} else if input.TelegramID > 0 {
-		current, err = s.repo.Subscriptions.GetLatestPublicByTelegramID(ctx, input.TelegramID)
-	} else {
-		return nil, domain.ErrInvalidInput
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	if input.TelegramID > 0 && current.User.TelegramID != input.TelegramID {
-		return nil, domain.ErrInvalidInput
-	}
-
-	tariffID := current.Tariff.ID
-	if input.TariffID != nil && *input.TariffID > 0 {
-		tariffID = *input.TariffID
-	}
-
-	tariff, err := s.repo.Tariffs.GetByID(ctx, tariffID)
-	if err != nil {
-		return nil, err
-	}
-
-	trafficLimitBytes := current.Subscription.TrafficLimitBytes
-	if trafficLimitBytes <= 0 {
-		trafficLimitBytes = tariff.TrafficLimitBytes
-	}
-
-	now := time.Now()
-	expiresAtPreview := now.AddDate(0, 0, tariff.DurationDays)
-
-	remnaUser, err := s.ensureRemnaUserForSite(ctx, &current.User, trafficLimitBytes, expiresAtPreview)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := s.repo.Tx.WithinTransaction(ctx, func(ctx context.Context) error {
-		lockedUser, err := s.repo.Users.GetByIDForUpdate(ctx, current.User.ID)
-		if err != nil {
-			return err
-		}
-
-		if err := s.repo.Users.SetRemnaData(ctx, lockedUser.ID, domain.RemnaUserData{
-			UUID:            remnaUser.UUID,
-			Username:        remnaUser.Username,
-			SubscriptionURL: remnaUser.SubscriptionURL,
-			Status:          domain.RemnaStatusActive,
-		}); err != nil {
-			return err
-		}
-
-		return s.createOrExtendSiteSubscription(ctx, lockedUser.ID, tariff, trafficLimitBytes, now)
-	}); err != nil {
-		return nil, err
-	}
-
-	return s.GetActiveByTelegramID(ctx, current.User.TelegramID)
+	return nil, domain.ErrInvalidInput
 }
 
 func (s *subscriptionService) ensureRemnaUserForSite(ctx context.Context, user *domain.User, trafficLimitBytes int64, expiresAt time.Time) (*domain.RemnaUser, error) {
@@ -534,9 +429,66 @@ func (s *subscriptionService) createOrExtendSiteSubscription(ctx context.Context
 }
 
 func remnaUsername(user *domain.User) string {
+	candidates := make([]string, 0, 3)
+
+	// Admin "Username" is Telegram alias and it must be the main Remnawave name.
+	if user.TelegramUsername != nil && strings.TrimSpace(*user.TelegramUsername) != "" {
+		candidates = append(candidates, *user.TelegramUsername)
+	}
+
+	if user.Alias != nil && strings.TrimSpace(*user.Alias) != "" {
+		candidates = append(candidates, *user.Alias)
+	}
+
 	if user.RemnaUsername != nil && strings.TrimSpace(*user.RemnaUsername) != "" {
-		return strings.TrimSpace(*user.RemnaUsername)
+		oldValue := strings.TrimSpace(*user.RemnaUsername)
+		if !strings.HasPrefix(oldValue, "tg_") {
+			candidates = append(candidates, oldValue)
+		}
+	}
+
+	for _, candidate := range candidates {
+		normalized := normalizeSubscriptionRemnaUsername(candidate)
+		if len(normalized) >= 3 {
+			return normalized
+		}
 	}
 
 	return fmt.Sprintf("tg_%d", user.TelegramID)
+}
+
+func normalizeSubscriptionRemnaUsername(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "@")
+	if value == "" {
+		return ""
+	}
+
+	var builder strings.Builder
+
+	for _, char := range value {
+		switch {
+		case char >= 'a' && char <= 'z':
+			builder.WriteRune(char)
+		case char >= 'A' && char <= 'Z':
+			builder.WriteRune(char)
+		case char >= '0' && char <= '9':
+			builder.WriteRune(char)
+		case char == '_' || char == '-':
+			builder.WriteRune(char)
+		default:
+			builder.WriteByte('_')
+		}
+
+		if builder.Len() >= 36 {
+			break
+		}
+	}
+
+	result := strings.Trim(builder.String(), "_-")
+	if len(result) > 36 {
+		result = result[:36]
+	}
+
+	return result
 }

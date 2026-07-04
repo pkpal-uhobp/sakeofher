@@ -26,14 +26,32 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	retryTicker := time.NewTicker(s.cfg.RetryActivationInterval)
 	syncUsageTicker := time.NewTicker(s.cfg.SyncUsageInterval)
 	resetTrafficTicker := time.NewTicker(s.cfg.ResetTrafficInterval)
+	notifyTicker := time.NewTicker(s.cfg.NotifyInterval)
 
 	defer expireTicker.Stop()
 	defer deleteTicker.Stop()
 	defer retryTicker.Stop()
 	defer syncUsageTicker.Stop()
 	defer resetTrafficTicker.Stop()
+	defer notifyTicker.Stop()
 
-	s.log.Info("worker scheduler started")
+	s.log.Info(
+		"worker scheduler started",
+		zap.Duration("expire_interval", s.cfg.ExpireInterval),
+		zap.Duration("delete_disabled_interval", s.cfg.DeleteDisabledInterval),
+		zap.Duration("retry_activation_interval", s.cfg.RetryActivationInterval),
+		zap.Duration("sync_usage_interval", s.cfg.SyncUsageInterval),
+		zap.Duration("reset_traffic_interval", s.cfg.ResetTrafficInterval),
+		zap.Duration("notify_interval", s.cfg.NotifyInterval),
+	)
+
+	// Run once immediately, so during local tests the worker writes useful logs
+	// without waiting one hour for the first ticker.
+	s.runJob(ctx, "expire subscriptions", s.services.Workers.ExpireSubscriptions)
+	s.runJob(ctx, "sync remnawave usage", s.services.Workers.SyncUsage)
+	s.runJob(ctx, "reset traffic periods", s.services.Workers.ResetTrafficPeriods)
+	s.runJob(ctx, "notify expiring and traffic", s.services.Workers.NotifyExpiringAndTraffic)
+	s.runJob(ctx, "retry failed activations", s.services.Workers.RetryFailedActivations)
 
 	for {
 		select {
@@ -41,29 +59,44 @@ func (s *Scheduler) Run(ctx context.Context) error {
 			return ctx.Err()
 
 		case <-expireTicker.C:
-			if err := s.services.Workers.ExpireSubscriptions(ctx); err != nil {
-				s.log.Error("expire subscriptions failed", zap.Error(err))
-			}
+			s.runJob(ctx, "expire subscriptions", s.services.Workers.ExpireSubscriptions)
 
 		case <-deleteTicker.C:
-			if err := s.services.Workers.DeleteOldDisabledUsers(ctx); err != nil {
-				s.log.Error("delete old disabled users failed", zap.Error(err))
-			}
+			s.runJob(ctx, "delete old disabled users", s.services.Workers.DeleteOldDisabledUsers)
 
 		case <-retryTicker.C:
-			if err := s.services.Workers.RetryFailedActivations(ctx); err != nil {
-				s.log.Error("retry failed activations failed", zap.Error(err))
-			}
+			s.runJob(ctx, "retry failed activations", s.services.Workers.RetryFailedActivations)
 
 		case <-syncUsageTicker.C:
-			if err := s.services.Workers.SyncUsage(ctx); err != nil {
-				s.log.Error("sync remnawave usage failed", zap.Error(err))
-			}
+			s.runJob(ctx, "sync remnawave usage", s.services.Workers.SyncUsage)
 
 		case <-resetTrafficTicker.C:
-			if err := s.services.Workers.ResetTrafficPeriods(ctx); err != nil {
-				s.log.Error("reset traffic periods failed", zap.Error(err))
-			}
+			s.runJob(ctx, "reset traffic periods", s.services.Workers.ResetTrafficPeriods)
+
+		case <-notifyTicker.C:
+			s.runJob(ctx, "notify expiring and traffic", s.services.Workers.NotifyExpiringAndTraffic)
 		}
 	}
+}
+
+func (s *Scheduler) runJob(ctx context.Context, name string, fn func(context.Context) error) {
+	startedAt := time.Now()
+
+	s.log.Info("worker job started", zap.String("job", name))
+
+	if err := fn(ctx); err != nil {
+		s.log.Error(
+			"worker job failed",
+			zap.String("job", name),
+			zap.Duration("duration", time.Since(startedAt)),
+			zap.Error(err),
+		)
+		return
+	}
+
+	s.log.Info(
+		"worker job finished",
+		zap.String("job", name),
+		zap.Duration("duration", time.Since(startedAt)),
+	)
 }

@@ -36,13 +36,16 @@ func (s *subscriptionService) ensureRemnaUserWithSquads(
 		})
 	}
 
-	// Do not call /actions/enable here.
-	// For our "pause subscription" mode the Remnawave user usually remains ACTIVE,
-	// but is removed from all internal squads. Calling EnableUser can fail or be
-	// unnecessary. PATCH /api/users with Status=ACTIVE + squads is enough and
-	// also refreshes the subscription config.
+	uuid := strings.TrimSpace(*user.RemnaUUID)
+
+	// When the user was disabled because subscription expired/cancelled,
+	// restore him in Remnawave first, then update squads and subscription data.
+	if err := s.remna.EnableUser(ctx, uuid); err != nil && !isIgnorableRemnaAlreadyStateError(err) {
+		return nil, fmt.Errorf("enable remnawave user: %w", err)
+	}
+
 	return s.remna.UpdateUser(ctx, domain.UpdateRemnaUserRequest{
-		UUID:                 strings.TrimSpace(*user.RemnaUUID),
+		UUID:                 uuid,
 		Username:             username,
 		Status:               "ACTIVE",
 		TrafficLimitBytes:    &trafficLimitBytes,
@@ -54,18 +57,22 @@ func (s *subscriptionService) ensureRemnaUserWithSquads(
 	})
 }
 
+// removeRemnaUserFromAllSquads keeps its old name for compatibility,
+// but business behavior is: remove from squads + disable user in Remnawave.
 func (s *subscriptionService) removeRemnaUserFromAllSquads(ctx context.Context, item *domain.PublicSubscription) error {
 	if item == nil || item.User.RemnaUUID == nil || strings.TrimSpace(*item.User.RemnaUUID) == "" {
 		return nil
 	}
 
-	description := fmt.Sprintf("Telegram ID: %d", item.User.TelegramID)
+	uuid := strings.TrimSpace(*item.User.RemnaUUID)
+	description := fmt.Sprintf("Telegram ID: %d; subscription expired or disabled", item.User.TelegramID)
 	expiresAtUnix := item.Subscription.ExpiresAt.Unix()
 	trafficLimitBytes := item.Subscription.TrafficLimitBytes
 	username := remnaUsername(&item.User)
 
-	_, err := s.remna.UpdateUser(ctx, domain.UpdateRemnaUserRequest{
-		UUID:                 strings.TrimSpace(*item.User.RemnaUUID),
+	// Send [] explicitly before disabling, otherwise user can remain in squads.
+	if _, err := s.remna.UpdateUser(ctx, domain.UpdateRemnaUserRequest{
+		UUID:                 uuid,
 		Username:             username,
 		Status:               "ACTIVE",
 		TrafficLimitBytes:    &trafficLimitBytes,
@@ -73,12 +80,13 @@ func (s *subscriptionService) removeRemnaUserFromAllSquads(ctx context.Context, 
 		TrafficResetStrategy: "NO_RESET",
 		Description:          &description,
 		TelegramID:           &item.User.TelegramID,
-
-		// This must be sent as [] to Remnawave. Do not omit this field in DTO.
 		ActiveInternalSquads: []string{},
-	})
-	if err != nil {
-		return fmt.Errorf("remove remnawave user from squads: %w", err)
+	}); err != nil {
+		return fmt.Errorf("remove remnawave user from squads before disable: %w", err)
+	}
+
+	if err := s.remna.DisableUser(ctx, uuid); err != nil && !isIgnorableRemnaAlreadyStateError(err) {
+		return fmt.Errorf("disable remnawave user: %w", err)
 	}
 
 	return nil
@@ -153,4 +161,17 @@ func defaultRemnaSquadsFromEnv() []string {
 	}
 
 	return normalizeServiceSquads(strings.Split(raw, ","))
+}
+
+func isIgnorableRemnaAlreadyStateError(err error) bool {
+	if err == nil {
+		return true
+	}
+
+	message := strings.ToLower(err.Error())
+
+	return strings.Contains(message, "already") ||
+		strings.Contains(message, "same status") ||
+		strings.Contains(message, "not modified") ||
+		strings.Contains(message, "no changes")
 }

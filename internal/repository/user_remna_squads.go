@@ -36,7 +36,6 @@ func (r *UserRepository) GetRemnaActiveSquads(ctx context.Context, userID int64)
 		WHERE user_id = $1
 	`, userID).Scan(&squads)
 	if err != nil {
-		// If there is no row yet, this user just does not have saved squads.
 		return nil, nil
 	}
 

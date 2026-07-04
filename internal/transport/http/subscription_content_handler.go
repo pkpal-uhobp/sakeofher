@@ -40,13 +40,6 @@ func (h *PublicHandler) GetBase64SubscriptionByTelegramID(w http.ResponseWriter,
 		return
 	}
 
-	// One URL mode:
-	//
-	// Browser:
-	//   Accept: text/html -> pretty page.
-	//
-	// App/Postman/curl:
-	//   no text/html OR ?format=base64 -> raw subscription body + headers.
 	if wantsHTMLSubscriptionPage(r) {
 		http.Redirect(
 			w,
@@ -64,7 +57,7 @@ func (h *PublicHandler) GetBase64SubscriptionByTelegramID(w http.ResponseWriter,
 	}
 
 	if isSubscriptionAccessExpired(item) {
-		remote := makeExpiredSubscriptionResponse(r, item)
+		remote := h.makeExpiredSubscriptionResponse(r.Context(), r, item)
 		copyRemoteResponseHeaders(w.Header(), remote.Header)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -78,8 +71,15 @@ func (h *PublicHandler) GetBase64SubscriptionByTelegramID(w http.ResponseWriter,
 		return
 	}
 
+	// Important for Happ:
+	// sub-expire/sub-info are persistent app-management parameters. If they
+	// were once sent for an expired subscription, Happ can keep displaying the
+	// red renewal block until it receives explicit disabling parameters.
+	remote.Body = stripExpiredHappMarkersFromActiveBody(remote.Body)
+
 	copyRemoteResponseHeaders(w.Header(), remote.Header)
 	ensureSubscriptionProfileHeaders(w.Header(), r, item)
+	disableExpiredHappBlocksForActive(w.Header())
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -136,30 +136,205 @@ func isSubscriptionAccessExpired(item *domain.PublicSubscription) bool {
 		periodStatus == string(domain.PeriodStatusTrafficExhausted)
 }
 
-func makeExpiredSubscriptionResponse(r *http.Request, item *domain.PublicSubscription) *remoteSubscriptionResponse {
-	botURL := renewalBotURL()
-	expireAt := time.Now().Unix()
+func (h *PublicHandler) makeExpiredSubscriptionResponse(
+	ctx context.Context,
+	r *http.Request,
+	item *domain.PublicSubscription,
+) *remoteSubscriptionResponse {
+	expiredHeaders := expiredSubscriptionHeaders(item)
 
+	// Prefer Remnawave's own disabled/expired subscription body because it is
+	// client-compatible. We still override/add our expired headers and bot URL.
+	if remote, err := h.tryFetchRemnawaveExpiredSubscription(ctx, r, item); err == nil {
+		for key, values := range expiredHeaders {
+			remote.Header.Del(key)
+			for _, value := range values {
+				remote.Header.Add(key, value)
+			}
+		}
+
+		return remote
+	}
+
+	// Fallback: empty Base64 body. Do not return comment-only Base64 body,
+	// because Happ can try to parse such body as configs and show config error.
+	return &remoteSubscriptionResponse{
+		Body:   base64.StdEncoding.EncodeToString(nil),
+		Header: expiredHeaders,
+	}
+}
+
+func (h *PublicHandler) tryFetchRemnawaveExpiredSubscription(
+	ctx context.Context,
+	r *http.Request,
+	item *domain.PublicSubscription,
+) (*remoteSubscriptionResponse, error) {
+	if item == nil {
+		return nil, domain.ErrNotFound
+	}
+
+	remoteURL, err := h.resolveRemnawaveSubscriptionURL(ctx, item)
+	if err != nil {
+		return nil, err
+	}
+
+	remote, err := fetchRemoteSubscription(ctx, r, remoteURL)
+	if err != nil {
+		return nil, err
+	}
+
+	decoded := strings.ToLower(decodedSubscriptionText(remote.Body))
+	if containsProxyNode(decoded) {
+		return nil, fmt.Errorf("remnawave returned active nodes for expired subscription")
+	}
+
+	return remote, nil
+}
+
+func expiredSubscriptionHeaders(item *domain.PublicSubscription) http.Header {
+	botURL := renewalBotURL()
+
+	expireAt := time.Now().Add(-time.Hour).Unix()
 	if item != nil && !item.Subscription.ExpiresAt.IsZero() {
 		expireAt = item.Subscription.ExpiresAt.Unix()
 	}
 
-	message := "Subscription expired.\nRenew in Telegram: " + botURL + "\n"
-	body := base64.StdEncoding.EncodeToString([]byte("# " + strings.ReplaceAll(message, "\n", "\n# ")))
-
 	headers := make(http.Header)
-	headers.Set("profile-title", "SakeOfHer - expired")
+	headers.Set("profile-title", "SakeOfHer expired")
 	headers.Set("profile-update-interval", "1")
-	headers.Set("subscription-userinfo", fmt.Sprintf("upload=0; download=0; total=0; expire=%d", expireAt))
-	headers.Set("profile-web-page-url", botURL)
-
-	// Some clients read this unofficial header, it is harmless for the rest.
 	headers.Set("subscription-status", "expired")
+	headers.Set("subscription-userinfo", fmt.Sprintf("upload=0; download=0; total=1; expire=%d", expireAt))
+	headers.Set("profile-web-page-url", botURL)
+	headers.Set("support-url", botURL)
 
-	return &remoteSubscriptionResponse{
-		Body:   body,
-		Header: headers,
+	headers.Set("sub-expire", "1")
+	headers.Set("sub-expire-button-link", botURL)
+	headers.Set("sub-info-color", "red")
+	headers.Set("sub-info-text", "Ваша подписка истекла. Продлите доступ в Telegram-боте.")
+	headers.Set("sub-info-button-text", "Продлить")
+	headers.Set("sub-info-button-link", botURL)
+
+	if providerID := strings.TrimSpace(os.Getenv("HAPP_PROVIDER_ID")); providerID != "" {
+		headers.Set("providerid", providerID)
 	}
+
+	return headers
+}
+
+func disableExpiredHappBlocksForActive(headers http.Header) {
+	// Remove stale values copied from Remnawave or previous responses.
+	for _, key := range []string{
+		"sub-expire-button-link",
+		"sub-info-color",
+		"sub-info-button-text",
+		"sub-info-button-link",
+	} {
+		headers.Del(key)
+	}
+
+	// Explicitly disable persistent Happ advanced blocks after renewal.
+	// Happ docs: sub-expire is disabled by any value different from true/1,
+	// and sub-info block is disabled by empty sub-info-text.
+	headers.Set("sub-expire", "0")
+	headers.Set("sub-info-text", "")
+	headers.Set("subscription-status", "active")
+
+	if providerID := strings.TrimSpace(os.Getenv("HAPP_PROVIDER_ID")); providerID != "" {
+		headers.Set("providerid", providerID)
+	}
+}
+
+func stripExpiredHappMarkersFromActiveBody(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return body
+	}
+
+	decoded, wasBase64 := tryDecodeSubscriptionBody(body)
+	filtered := filterExpiredHappMetaLines(decoded)
+
+	if wasBase64 {
+		return base64.StdEncoding.EncodeToString([]byte(filtered))
+	}
+
+	return filtered
+}
+
+func tryDecodeSubscriptionBody(body string) (string, bool) {
+	decoded, err := base64.StdEncoding.DecodeString(body)
+	if err == nil {
+		return string(decoded), true
+	}
+
+	return body, false
+}
+
+func filterExpiredHappMetaLines(decoded string) string {
+	lines := strings.Split(decoded, "\n")
+	out := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		if isExpiredHappMetaLine(line) {
+			continue
+		}
+
+		out = append(out, line)
+	}
+
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+func isExpiredHappMetaLine(line string) bool {
+	prepared := strings.TrimSpace(line)
+	if prepared == "" {
+		return false
+	}
+
+	for strings.HasPrefix(prepared, "#") {
+		prepared = strings.TrimSpace(strings.TrimPrefix(prepared, "#"))
+	}
+
+	lower := strings.ToLower(prepared)
+
+	for _, prefix := range []string{
+		"sub-expire:",
+		"sub-expire-button-link:",
+		"sub-info-color:",
+		"sub-info-text:",
+		"sub-info-button-text:",
+		"sub-info-button-link:",
+		"subscription-status: expired",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func decodedSubscriptionText(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(body)
+	if err == nil {
+		return string(decoded)
+	}
+
+	return body
+}
+
+func containsProxyNode(value string) bool {
+	return strings.Contains(value, "vless://") ||
+		strings.Contains(value, "vmess://") ||
+		strings.Contains(value, "trojan://") ||
+		strings.Contains(value, "hy2://") ||
+		strings.Contains(value, "hysteria2://") ||
+		strings.Contains(value, "ss://") ||
+		strings.Contains(value, "socks://")
 }
 
 func renewalBotURL() string {
@@ -167,6 +342,7 @@ func renewalBotURL() string {
 		"TELEGRAM_BOT_URL",
 		"BOT_URL",
 		"PUBLIC_BOT_URL",
+		"VITE_TELEGRAM_BOT_URL",
 	} {
 		value := strings.TrimSpace(os.Getenv(key))
 		if value != "" {
@@ -207,13 +383,6 @@ func (h *PublicHandler) makeRemnawaveSubscriptionResponse(
 		return nil, fmt.Errorf("remnawave subscription is empty")
 	}
 
-	// Remnawave already generates the full subscription:
-	// - all proxy configs,
-	// - client routing metadata,
-	// - profile title/update interval/userinfo headers,
-	// - client-specific output by User-Agent.
-	//
-	// We return body and headers as close to Remnawave as possible.
 	return remote, nil
 }
 
@@ -392,8 +561,6 @@ func isHopByHopOrUnsafeResponseHeader(name string) bool {
 }
 
 func ensureSubscriptionProfileHeaders(headers http.Header, r *http.Request, item *domain.PublicSubscription) {
-	// These headers are what clients use for profile name, traffic display and auto-update.
-	// If Remnawave returned them, keep Remnawave values untouched.
 	if headers.Get("profile-title") == "" {
 		headers.Set("profile-title", "SakeOfHer")
 	}

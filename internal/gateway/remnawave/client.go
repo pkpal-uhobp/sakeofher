@@ -19,9 +19,7 @@ import (
 const (
 	defaultTrafficResetStrategy = "NO_RESET"
 	statusActive                = "ACTIVE"
-	statusDisabled              = "DISABLED"
-
-	noHWIDDeviceLimit = 0
+	noHWIDDeviceLimit           = 0
 )
 
 type Client struct {
@@ -53,20 +51,19 @@ type createUserRequestDTO struct {
 }
 
 type updateUserRequestDTO struct {
-	UUID                 string   `json:"uuid"`
-	Username             string   `json:"username,omitempty"`
-	Status               string   `json:"status,omitempty"`
-	TrafficLimitBytes    *int64   `json:"trafficLimitBytes,omitempty"`
-	TrafficLimitStrategy string   `json:"trafficLimitStrategy,omitempty"`
-	ExpireAt             *string  `json:"expireAt,omitempty"`
-	Description          *string  `json:"description,omitempty"`
-	TelegramID           *int64   `json:"telegramId,omitempty"`
-	Email                *string  `json:"email,omitempty"`
-	Tag                  *string  `json:"tag,omitempty"`
-	HWIDDeviceLimit      int      `json:"hwidDeviceLimit"`
+	UUID                 string  `json:"uuid"`
+	Username             string  `json:"username,omitempty"`
+	Status               string  `json:"status,omitempty"`
+	TrafficLimitBytes    *int64  `json:"trafficLimitBytes,omitempty"`
+	TrafficLimitStrategy string  `json:"trafficLimitStrategy,omitempty"`
+	ExpireAt             *string `json:"expireAt,omitempty"`
+	Description          *string `json:"description,omitempty"`
+	TelegramID           *int64  `json:"telegramId,omitempty"`
+	Email                *string `json:"email,omitempty"`
+	Tag                  *string `json:"tag,omitempty"`
+	HWIDDeviceLimit      int     `json:"hwidDeviceLimit"`
 
-	// Do NOT add omitempty.
-	// [] must be sent to Remnawave to remove user from all internal squads.
+	// No omitempty: [] means remove the user from all internal squads.
 	ActiveInternalSquads []string `json:"activeInternalSquads"`
 }
 

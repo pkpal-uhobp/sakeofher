@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"go.uber.org/zap"
+
 	"sakeofher/internal/domain"
 	"sakeofher/internal/gateway"
 	"sakeofher/internal/repository"
@@ -12,7 +14,6 @@ import (
 type UserService interface {
 	GetOrCreateTelegramUser(ctx context.Context, input domain.TelegramUserInput) (*domain.User, error)
 	GetByTelegramID(ctx context.Context, telegramID int64) (*domain.User, error)
-
 	List(ctx context.Context, input domain.UserListInput) (*domain.UserListResponse, error)
 	GetByID(ctx context.Context, id int64) (*domain.User, error)
 	Update(ctx context.Context, id int64, input domain.UpdateUserInput) (*domain.User, error)
@@ -85,6 +86,7 @@ type WorkerService interface {
 	RetryFailedActivations(ctx context.Context) error
 	SyncUsage(ctx context.Context) error
 	ResetTrafficPeriods(ctx context.Context) error
+	NotifyExpiringAndTraffic(ctx context.Context) error
 }
 
 type Services struct {
@@ -110,11 +112,12 @@ func NewServices(
 	adminPassword string,
 	jwtSecret string,
 	jwtAccessTTL time.Duration,
+	log *zap.Logger,
 ) *Services {
 	notifications := NewNotificationService(gates.Telegram)
 	subscriptions := NewSubscriptionService(repo, gates.Remnawave, notifications)
 	payments := NewPaymentService(repo, gates, subscriptions)
-	workers := NewWorkerService(subscriptions, payments)
+	workers := NewWorkerService(repo, subscriptions, payments, notifications, log)
 
 	return &Services{
 		Auth:          NewAuthService(adminUsername, adminPassword, jwtSecret, jwtAccessTTL),

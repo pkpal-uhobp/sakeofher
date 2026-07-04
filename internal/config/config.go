@@ -41,15 +41,16 @@ type JWTConfig struct {
 }
 
 type AdminConfig struct {
-	Username string `envconfig:"ADMIN_USERNAME" default:"admin"`
-	Password string `envconfig:"ADMIN_PASSWORD" default:""`
+	Username       string `envconfig:"ADMIN_LOGIN" default:""`
+	LegacyUsername string `envconfig:"ADMIN_USERNAME" default:""`
+	Password       string `envconfig:"ADMIN_PASSWORD" default:""`
 }
 
 type TelegramConfig struct {
-	BotToken      string  `envconfig:"TELEGRAM_BOT_TOKEN"`
-	BotUsername   string  `envconfig:"TELEGRAM_BOT_USERNAME" default:""`
-	AdminIDs      []int64 `ignored:"true"`
-	RawAdminIDs   string  `envconfig:"TELEGRAM_ADMIN_IDS" default:""`
+	BotToken    string  `envconfig:"TELEGRAM_BOT_TOKEN"`
+	BotUsername string  `envconfig:"TELEGRAM_BOT_USERNAME" default:""`
+	AdminIDs    []int64 `ignored:"true"`
+	RawAdminIDs string  `envconfig:"TELEGRAM_ADMIN_IDS" default:""`
 }
 
 type RemnawaveConfig struct {
@@ -85,33 +86,43 @@ func Load() (Config, error) {
 	if err := envconfig.Process("", &cfg.App); err != nil {
 		return Config{}, fmt.Errorf("process app config: %w", err)
 	}
+
 	if err := envconfig.Process("", &cfg.HTTP); err != nil {
 		return Config{}, fmt.Errorf("process http config: %w", err)
 	}
+
 	pg, err := repoPool.NewConfig()
 	if err != nil {
 		return Config{}, err
 	}
 	cfg.Postgres = pg
+
 	if err := envconfig.Process("", &cfg.JWT); err != nil {
 		return Config{}, fmt.Errorf("process jwt config: %w", err)
 	}
+
 	if err := envconfig.Process("", &cfg.Admin); err != nil {
 		return Config{}, fmt.Errorf("process admin config: %w", err)
 	}
+	normalizeAdminConfig(&cfg.Admin)
+
 	if err := envconfig.Process("", &cfg.Telegram); err != nil {
 		return Config{}, fmt.Errorf("process telegram config: %w", err)
 	}
 	cfg.Telegram.AdminIDs = parseAdminIDs(cfg.Telegram.RawAdminIDs)
+
 	if err := envconfig.Process("", &cfg.Remnawave); err != nil {
 		return Config{}, fmt.Errorf("process remnawave config: %w", err)
 	}
+
 	if err := envconfig.Process("", &cfg.Tribute); err != nil {
 		return Config{}, fmt.Errorf("process tribute config: %w", err)
 	}
+
 	if err := envconfig.Process("", &cfg.CryptoBot); err != nil {
 		return Config{}, fmt.Errorf("process cryptobot config: %w", err)
 	}
+
 	if err := envconfig.Process("", &cfg.Worker); err != nil {
 		return Config{}, fmt.Errorf("process worker config: %w", err)
 	}
@@ -119,21 +130,38 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
+func normalizeAdminConfig(cfg *AdminConfig) {
+	cfg.Username = strings.TrimSpace(cfg.Username)
+	cfg.LegacyUsername = strings.TrimSpace(cfg.LegacyUsername)
+
+	if cfg.Username == "" {
+		cfg.Username = cfg.LegacyUsername
+	}
+
+	if cfg.Username == "" {
+		cfg.Username = "admin"
+	}
+}
+
 func parseAdminIDs(raw string) []int64 {
 	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
+
 	parts := strings.Split(raw, ",")
 	ids := make([]int64, 0, len(parts))
+
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
+
 		id, err := strconv.ParseInt(part, 10, 64)
 		if err == nil && id > 0 {
 			ids = append(ids, id)
 		}
 	}
+
 	return ids
 }

@@ -3,6 +3,7 @@ package domain
 import "time"
 
 type LoginInput struct {
+	Login    string `json:"login"`
 	Username string `json:"username"`
 	Password string `json:"password"`
 }

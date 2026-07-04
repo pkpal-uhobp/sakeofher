@@ -1,56 +1,20 @@
 <template>
   <main class="auth-success">
     <section class="card">
-      <h1>{{ title }}</h1>
-      <p>{{ message }}</p>
+      <h1>Вход через Telegram отключён</h1>
+      <p>
+        Используйте вход по логину и паролю из переменных окружения.
+      </p>
 
-      <RouterLink v-if="showHomeLink" to="/" class="home-link">
-        На главную
+      <RouterLink to="/login" class="home-link">
+        Перейти ко входу
       </RouterLink>
     </section>
   </main>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
-import { api } from '../../api/client'
-
-const router = useRouter()
-const title = ref('Проверяем доступ…')
-const message = ref('Пожалуйста, подождите.')
-const showHomeLink = ref(false)
-
-onMounted(async () => {
-  try {
-    const response = await api.get('/auth/me')
-    const isAdmin = Boolean(response.data?.is_admin)
-
-    if (!isAdmin) {
-      title.value = 'Вход выполнен, но прав администратора нет'
-      message.value = 'Лендинг остаётся доступным, но админ-панель открыта только администраторам.'
-      showHomeLink.value = true
-
-      setTimeout(() => {
-        router.replace('/')
-      }, 1600)
-      return
-    }
-
-    title.value = 'Вход выполнен'
-    message.value = 'Перенаправляем в админ-панель.'
-
-    setTimeout(() => {
-      router.replace('/admin')
-    }, 500)
-  } catch {
-    title.value = 'Авторизация не удалась'
-    message.value = 'Попробуйте войти ещё раз.'
-    setTimeout(() => {
-      router.replace({ path: '/login', query: { reason: 'auth_required' } })
-    }, 900)
-  }
-})
+import { RouterLink } from 'vue-router'
 </script>
 
 <style scoped>

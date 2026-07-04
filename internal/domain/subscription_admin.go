@@ -18,9 +18,10 @@ type SubscriptionListResponse struct {
 }
 
 type CreateManualSubscriptionInput struct {
-	UserID         int64 `json:"user_id"`
-	TariffID       int64 `json:"tariff_id"`
-	TrafficLimitGB int64 `json:"traffic_limit_gb"`
+	UserID              int64    `json:"user_id"`
+	TariffID            int64    `json:"tariff_id"`
+	TrafficLimitGB      int64    `json:"traffic_limit_gb"`
+	ActiveInternalSquads []string `json:"active_internal_squads,omitempty"`
 }
 
 type ExtendSubscriptionInput struct {
@@ -38,6 +39,6 @@ type UpdateSubscriptionInput struct {
 	ExpiresAt          *time.Time          `json:"expires_at,omitempty"`
 	CurrentPeriodStart *time.Time          `json:"current_period_start,omitempty"`
 	CurrentPeriodEnd   *time.Time          `json:"current_period_end,omitempty"`
-	TrafficLimitGB     *int64              `json:"traffic_limit_gb,omitempty"`
-	TrafficUsedGB      *int64              `json:"traffic_used_gb,omitempty"`
+	TrafficLimitGB      *int64              `json:"traffic_limit_gb,omitempty"`
+	TrafficUsedGB       *int64              `json:"traffic_used_gb,omitempty"`
 }

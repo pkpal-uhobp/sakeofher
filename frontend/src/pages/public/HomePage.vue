@@ -18,15 +18,30 @@
         <a href="#contacts">Контакты</a>
       </nav>
 
-      <RouterLink class="login-button" to="/login">
-        <span class="login-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" stroke-width="1.8" />
-            <path d="M4.75 20c.75-3.45 3.52-5.6 7.25-5.6s6.5 2.15 7.25 5.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-          </svg>
-        </span>
-        Войти
-      </RouterLink>
+      <div class="header-actions">
+        <div v-if="isAuthorized" class="session-badge">
+          <span class="session-dot"></span>
+          <span>{{ username }}</span>
+        </div>
+
+        <RouterLink v-if="isAuthorized" class="panel-button" to="/panel">
+          Панель
+        </RouterLink>
+
+        <button v-if="isAuthorized" class="logout-button" type="button" @click="logout">
+          Выйти
+        </button>
+
+        <RouterLink v-else class="login-button" to="/login">
+          <span class="login-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" stroke-width="1.8" />
+              <path d="M4.75 20c.75-3.45 3.52-5.6 7.25-5.6s6.5 2.15 7.25 5.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </span>
+          Войти
+        </RouterLink>
+      </div>
     </header>
 
     <section id="top" class="hero">
@@ -114,7 +129,7 @@
     </section>
 
     <section id="about" class="info-grid" aria-label="О проекте">
-      <article class="info-card info-card-large">
+      <article class="info-card">
         <div class="icon-box">
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M4 20h16M6 18V9.5L12 5l6 4.5V18M9 18v-6h6v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
@@ -188,7 +203,12 @@
 </template>
 
 <script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { api } from '../../api/client'
+
+const isAuthorized = ref(false)
+const username = ref('')
 
 const features = [
   {
@@ -230,6 +250,28 @@ const steps = [
     text: 'Используем структуру для достижения целей и постоянного улучшения процессов.',
   },
 ]
+
+onMounted(checkSession)
+
+async function checkSession() {
+  try {
+    const { data } = await api.get('/auth/me')
+    isAuthorized.value = Boolean(data?.is_admin)
+    username.value = data?.username || data?.user?.telegram_username || 'аккаунт'
+  } catch {
+    isAuthorized.value = false
+    username.value = ''
+  }
+}
+
+async function logout() {
+  try {
+    await api.post('/auth/logout')
+  } finally {
+    isAuthorized.value = false
+    username.value = ''
+  }
+}
 </script>
 
 <style scoped>
@@ -364,16 +406,54 @@ const steps = [
   box-shadow: 0 0 18px rgba(2, 132, 255, 0.9);
 }
 
-.login-button {
+.header-actions {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  height: 42px;
-  padding-inline: 20px;
+}
+
+.session-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 190px;
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  border-radius: 999px;
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.08);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.session-badge span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #22c55e;
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.9);
+}
+
+.login-button,
+.panel-button,
+.logout-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 42px;
+  padding-inline: 18px;
   border: 1px solid rgba(14, 165, 233, 0.75);
   border-radius: 999px;
   color: #f8fafc;
-  font-weight: 700;
+  font-weight: 800;
   text-decoration: none;
   background: rgba(2, 6, 23, 0.55);
   box-shadow: inset 0 0 18px rgba(14, 165, 233, 0.08);
@@ -383,10 +463,22 @@ const steps = [
     border-color 0.2s ease;
 }
 
-.login-button:hover {
+.panel-button {
+  background: linear-gradient(135deg, #0786ff, #0057e5);
+  border-color: transparent;
+}
+
+.logout-button {
+  cursor: pointer;
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.login-button:hover,
+.panel-button:hover,
+.logout-button:hover {
   transform: translateY(-1px);
   border-color: rgba(125, 211, 252, 0.95);
-  background: rgba(14, 165, 233, 0.12);
 }
 
 .login-icon svg {
@@ -473,16 +565,6 @@ const steps = [
 .primary-action:hover,
 .secondary-action:hover {
   transform: translateY(-2px);
-}
-
-.primary-action:hover {
-  box-shadow:
-    0 22px 54px rgba(0, 102, 255, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.24);
-}
-
-.secondary-action:hover {
-  border-color: rgba(125, 211, 252, 0.62);
 }
 
 .mini-grid {
@@ -801,10 +883,6 @@ const steps = [
   padding: 28px;
 }
 
-.info-card-large {
-  min-height: 188px;
-}
-
 .info-card .icon-box {
   margin-bottom: 18px;
 }
@@ -950,6 +1028,10 @@ const steps = [
     display: none;
   }
 
+  .site-header {
+    gap: 18px;
+  }
+
   .hero {
     grid-template-columns: 1fr;
     min-height: auto;
@@ -975,9 +1057,19 @@ const steps = [
     font-size: 22px;
   }
 
-  .login-button {
-    height: 38px;
-    padding-inline: 14px;
+  .header-actions {
+    gap: 6px;
+  }
+
+  .session-badge {
+    display: none;
+  }
+
+  .login-button,
+  .panel-button,
+  .logout-button {
+    min-height: 38px;
+    padding-inline: 12px;
   }
 
   .hero {

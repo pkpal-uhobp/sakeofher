@@ -2,6 +2,7 @@ package httptransport
 
 import (
 	"net/http"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -21,7 +22,7 @@ func NewRouter(
 	users := NewUserHandler(services)
 	subscriptions := NewSubscriptionAdminHandler(services)
 	tariffs := NewTariffAdminHandler(services)
-
+	remnawave := NewRemnawaveHandler()
 	bot := NewBotHandler(services)
 	site := NewSiteHandler(services)
 	auth := NewAuthHandler(services, jwtSecret)
@@ -49,7 +50,21 @@ func NewRouter(
 
 	mux.HandleFunc("GET /api/v1/subscriptions/public/{public_token}", public.GetPublicSubscription)
 	mux.HandleFunc("GET /api/v1/subscriptions/path/{subscription_path}/telegram/{telegram_id}", public.GetPublicSubscriptionByTelegramID)
+	mux.HandleFunc("GET /api/v1/subscriptions/content/path/{subscription_path}/telegram/{telegram_id}", public.GetBase64SubscriptionByTelegramID)
 	mux.HandleFunc("GET /api/v1/subscriptions/by-telegram/{telegram_id}", bot.GetSubscription)
+
+	// Exact literal subscription route.
+	//
+	// Do NOT use "GET /{subscription_path}/sub/{telegram_id}" here:
+	// Go ServeMux treats it as conflicting with subtree routes like "/docs/".
+	//
+	// With SUBSCRIPTION_PATH_SECRET=L0mENeiofHjdxC57 this registers:
+	//   GET /L0mENeiofHjdxC57/sub/{telegram_id}
+	//
+	// This direct route returns plain text Base64 subscription content.
+	if secret := strings.Trim(strings.TrimSpace(subscriptionPathSecret), "/"); secret != "" {
+		mux.HandleFunc("GET /"+secret+"/sub/{telegram_id}", public.GetBase64SubscriptionByTelegramID)
+	}
 
 	mux.HandleFunc("POST /api/v1/users/telegram", bot.Start)
 
@@ -59,6 +74,9 @@ func NewRouter(
 	mux.Handle("POST /api/v1/users/{id}/block", requireAdmin(users.Block))
 	mux.Handle("POST /api/v1/users/{id}/unblock", requireAdmin(users.Unblock))
 	mux.Handle("POST /api/v1/users/{id}/delete", requireAdmin(users.Delete))
+	mux.Handle("DELETE /api/v1/users/{id}", requireAdmin(users.Delete))
+
+	mux.Handle("GET /api/v1/remnawave/internal-squads", requireAdmin(remnawave.ListInternalSquads))
 
 	mux.Handle("GET /api/v1/subscriptions", requireAdmin(subscriptions.List))
 	mux.Handle("GET /api/v1/subscriptions/{id}", requireAdmin(subscriptions.GetByID))
@@ -69,6 +87,7 @@ func NewRouter(
 	mux.Handle("POST /api/v1/subscriptions/{id}/disable", requireAdmin(subscriptions.Disable))
 	mux.Handle("POST /api/v1/subscriptions/{id}/enable", requireAdmin(subscriptions.Enable))
 	mux.Handle("POST /api/v1/subscriptions/{id}/cancel", requireAdmin(subscriptions.Cancel))
+	mux.Handle("DELETE /api/v1/subscriptions/{id}", requireAdmin(subscriptions.Delete))
 
 	mux.Handle("GET /api/v1/tariffs/all", requireAdmin(tariffs.ListAll))
 	mux.Handle("GET /api/v1/tariffs/{id}", requireAdmin(tariffs.GetByID))
@@ -76,6 +95,7 @@ func NewRouter(
 	mux.Handle("PATCH /api/v1/tariffs/{id}", requireAdmin(tariffs.Update))
 	mux.Handle("POST /api/v1/tariffs/{id}/enable", requireAdmin(tariffs.Enable))
 	mux.Handle("POST /api/v1/tariffs/{id}/disable", requireAdmin(tariffs.Disable))
+	mux.Handle("DELETE /api/v1/tariffs/{id}", requireAdmin(tariffs.Delete))
 
 	return httpmiddleware.Recovery(log, httpmiddleware.AccessLog(log, mux))
 }

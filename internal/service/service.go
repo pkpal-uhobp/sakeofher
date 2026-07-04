@@ -24,13 +24,14 @@ type UserService interface {
 type TariffService interface {
 	ListActive(ctx context.Context) ([]domain.Tariff, error)
 	ListActiveWithPrices(ctx context.Context) ([]domain.TariffWithPrices, error)
-
 	ListAll(ctx context.Context) ([]domain.Tariff, error)
+	ListAllWithPrices(ctx context.Context) ([]domain.TariffWithPrices, error)
 	GetByID(ctx context.Context, id int64) (*domain.Tariff, error)
 	Create(ctx context.Context, input domain.CreateTariffInput) (*domain.Tariff, error)
 	Update(ctx context.Context, id int64, input domain.UpdateTariffInput) (*domain.Tariff, error)
 	Enable(ctx context.Context, id int64) (*domain.Tariff, error)
 	Disable(ctx context.Context, id int64) (*domain.Tariff, error)
+	Delete(ctx context.Context, id int64) (*domain.Tariff, error)
 }
 
 type AuthService interface {
@@ -76,7 +77,6 @@ type NotificationService interface {
 }
 
 type AdminService interface{}
-
 type BroadcastService interface{}
 
 type WorkerService interface {

@@ -1,36 +1,53 @@
 <template>
   <main class="login-page">
-    <section class="login-card">
-      <div class="badge">SakeOfHer Admin</div>
+    <div class="login-glow glow-a"></div>
+    <div class="login-glow glow-b"></div>
 
-      <h1>Вход в админ-панель</h1>
+    <section class="login-card">
+      <RouterLink class="login-brand" to="/">
+        <span></span>
+        SakeOfHer
+      </RouterLink>
+
+      <div class="badge">Панель управления</div>
+
+      <h1>Вход в аккаунт</h1>
 
       <p>
-        Лендинг и страница подписки доступны всем. Для управления проектом войдите
-        с логином и паролем администратора.
+        Введите логин и пароль из файла <b>.env</b>. После входа вы попадёте
+        в закрытую панель управления.
       </p>
 
-      <p v-if="reasonText" class="reason">
-        {{ reasonText }}
-      </p>
-
-      <p v-if="errorText" class="reason">
-        {{ errorText }}
-      </p>
-
-      <form @submit.prevent="login">
+      <form class="login-form" @submit.prevent="submit">
         <label>
-          Логин
-          <input v-model="username" type="text" autocomplete="username" required />
+          <span>Логин</span>
+          <input
+            v-model.trim="form.login"
+            autocomplete="username"
+            placeholder="Например: admin"
+            required
+          />
+          <small>Берётся из переменной ADMIN_LOGIN</small>
         </label>
 
         <label>
-          Пароль
-          <input v-model="password" type="password" autocomplete="current-password" required />
+          <span>Пароль</span>
+          <input
+            v-model="form.password"
+            autocomplete="current-password"
+            placeholder="Введите пароль администратора"
+            type="password"
+            required
+          />
+          <small>Берётся из переменной ADMIN_PASSWORD</small>
         </label>
+
+        <p v-if="error" class="reason">
+          {{ error }}
+        </p>
 
         <button type="submit" :disabled="loading">
-          {{ loading ? 'Входим…' : 'Войти' }}
+          {{ loading ? 'Проверяем…' : 'Войти в панель' }}
         </button>
       </form>
 
@@ -42,44 +59,35 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { api } from '../../api/client'
 
 const route = useRoute()
 const router = useRouter()
 
-const username = ref('')
-const password = ref('')
 const loading = ref(false)
-const errorText = ref('')
+const error = ref('')
 
-const reasonText = computed(() => {
-  if (route.query.reason === 'admin_required') {
-    return 'У вашей учётной записи нет прав администратора.'
-  }
-
-  if (route.query.reason === 'auth_required') {
-    return 'Сначала нужно авторизоваться.'
-  }
-
-  return ''
+const form = reactive({
+  login: '',
+  password: '',
 })
 
-async function login() {
-  errorText.value = ''
+async function submit() {
   loading.value = true
+  error.value = ''
 
   try {
     await api.post('/auth/login', {
-      username: username.value.trim(),
-      password: password.value,
+      login: form.login,
+      password: form.password,
     })
 
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/admin'
-    await router.replace(redirect)
-  } catch (e: any) {
-    errorText.value = e?.response?.data?.error || 'Неверный логин или пароль.'
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/panel'
+    router.replace(redirect)
+  } catch {
+    error.value = 'Неверный логин или пароль. Проверьте ADMIN_LOGIN и ADMIN_PASSWORD в .env.'
   } finally {
     loading.value = false
   }
@@ -88,26 +96,78 @@ async function login() {
 
 <style scoped>
 .login-page {
+  position: relative;
   min-height: 100vh;
   display: grid;
   place-items: center;
+  overflow: hidden;
   padding: 32px;
   background:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
     radial-gradient(circle at top left, rgba(14, 165, 233, 0.24), transparent 32%),
     radial-gradient(circle at bottom right, rgba(37, 99, 235, 0.16), transparent 34%),
     linear-gradient(135deg, #020617, #080b12);
+  background-size: 54px 54px, 54px 54px, 100% 100%, 100% 100%, 100% 100%;
   color: #f8fafc;
 }
 
+.login-glow {
+  position: fixed;
+  border-radius: 999px;
+  filter: blur(95px);
+  pointer-events: none;
+}
+
+.glow-a {
+  top: -220px;
+  right: 18%;
+  width: 430px;
+  height: 430px;
+  background: rgba(14, 165, 233, 0.22);
+}
+
+.glow-b {
+  bottom: -250px;
+  left: 12%;
+  width: 440px;
+  height: 440px;
+  background: rgba(37, 99, 235, 0.18);
+}
+
 .login-card {
-  width: min(460px, 100%);
-  padding: 32px;
-  border-radius: 28px;
-  background: rgba(15, 23, 42, 0.86);
+  position: relative;
+  z-index: 1;
+  width: min(500px, 100%);
+  padding: 34px;
+  border-radius: 30px;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.78)),
+    radial-gradient(circle at top left, rgba(14, 165, 233, 0.16), transparent 44%);
   border: 1px solid rgba(148, 163, 184, 0.24);
   box-shadow:
-    0 24px 80px rgba(0, 0, 0, 0.35),
+    0 26px 90px rgba(0, 0, 0, 0.42),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.login-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 22px;
+  color: #ffffff;
+  font-size: 23px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  text-decoration: none;
+}
+
+.login-brand span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #0ea5e9;
+  box-shadow: 0 0 18px rgba(14, 165, 233, 0.9);
 }
 
 .badge {
@@ -122,25 +182,18 @@ async function login() {
 
 h1 {
   margin: 0 0 12px;
-  font-size: 32px;
-  line-height: 1.1;
-  letter-spacing: -0.05em;
+  font-size: 38px;
+  line-height: 1.05;
+  letter-spacing: -0.065em;
 }
 
 p {
-  margin: 0 0 20px;
+  margin: 0 0 22px;
   color: #cbd5e1;
   line-height: 1.6;
 }
 
-.reason {
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(248, 113, 113, 0.12);
-  color: #fecaca;
-}
-
-form {
+.login-form {
   display: grid;
   gap: 16px;
 }
@@ -148,50 +201,72 @@ form {
 label {
   display: grid;
   gap: 8px;
-  color: #cbd5e1;
+}
+
+label span {
+  color: #e2e8f0;
   font-size: 14px;
+  font-weight: 800;
+}
+
+label small {
+  color: #64748b;
+  font-size: 12px;
 }
 
 input {
   width: 100%;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 16px;
-  padding: 14px 16px;
-  font-size: 16px;
+  min-height: 52px;
+  padding: 13px 15px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  outline: none;
   color: #f8fafc;
-  background: rgba(2, 6, 23, 0.72);
+  background: rgba(2, 6, 23, 0.62);
+}
+
+input::placeholder {
+  color: rgba(148, 163, 184, 0.62);
 }
 
 input:focus {
-  outline: none;
-  border-color: rgba(96, 165, 250, 0.8);
+  border-color: rgba(56, 189, 248, 0.72);
+  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.08);
+}
+
+.reason {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(248, 113, 113, 0.12);
+  color: #fecaca;
 }
 
 button {
   width: 100%;
   border: 0;
   border-radius: 18px;
-  padding: 14px 18px;
+  padding: 15px 18px;
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 900;
   color: #ffffff;
   background: linear-gradient(135deg, #0786ff, #0057e5);
   cursor: pointer;
   box-shadow: 0 18px 46px rgba(0, 102, 255, 0.3);
 }
 
-button:disabled {
-  opacity: 0.7;
-  cursor: wait;
+button:hover {
+  filter: brightness(1.08);
 }
 
-button:hover:not(:disabled) {
-  filter: brightness(1.08);
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .back-link {
   display: block;
-  margin-top: 18px;
+  margin-top: 20px;
   text-align: center;
   color: #93c5fd;
   text-decoration: none;

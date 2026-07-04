@@ -4,12 +4,11 @@ import { api } from '../api/client'
 import HomePage from '../pages/public/HomePage.vue'
 import SubscriptionPage from '../pages/public/SubscriptionPage.vue'
 import AdminDashboardPage from '../pages/admin/DashboardPage.vue'
+import UsersPage from '../pages/admin/UsersPage.vue'
+import UserDetailsPage from '../pages/admin/UserDetailsPage.vue'
+import SubscriptionsPage from '../pages/admin/SubscriptionsPage.vue'
+import TariffsPage from '../pages/admin/TariffsPage.vue'
 import LoginPage from '../pages/auth/LoginPage.vue'
-
-const publicRoutes = new Set([
-  '/',
-  '/login',
-])
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -24,26 +23,54 @@ export const router = createRouter({
       component: SubscriptionPage,
       meta: { public: true },
     },
+
+    // Pretty HTML subscription cabinet.
+    // Direct URL /{secret}/sub/{telegramId} is now reserved for Base64 subscription content.
     {
-      path: '/:secret/sub/:telegramId',
+      path: '/profile/:secret/sub/:telegramId',
       component: SubscriptionPage,
       meta: { public: true },
     },
+
     {
       path: '/login',
       component: LoginPage,
       meta: { public: true },
     },
     {
-      path: '/admin',
+      path: '/panel',
       component: AdminDashboardPage,
       meta: { requiresAdmin: true },
+    },
+    {
+      path: '/panel/users',
+      component: UsersPage,
+      meta: { requiresAdmin: true },
+    },
+    {
+      path: '/panel/users/:id',
+      component: UserDetailsPage,
+      meta: { requiresAdmin: true },
+    },
+    {
+      path: '/panel/subscriptions',
+      component: SubscriptionsPage,
+      meta: { requiresAdmin: true },
+    },
+    {
+      path: '/panel/tariffs',
+      component: TariffsPage,
+      meta: { requiresAdmin: true },
+    },
+    {
+      path: '/admin',
+      redirect: '/panel',
     },
   ],
 })
 
 router.beforeEach(async (to) => {
-  if (publicRoutes.has(to.path) || to.meta.public) {
+  if (to.meta.public) {
     return true
   }
 

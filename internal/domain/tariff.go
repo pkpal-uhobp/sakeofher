@@ -10,6 +10,7 @@ type Tariff struct {
 	DurationDays      int       `json:"duration_days"`
 	PeriodDays        int       `json:"period_days"`
 	TrafficLimitBytes int64     `json:"traffic_limit_bytes"`
+	PriceRub          int64     `json:"price_rub"`
 	IsActive          bool      `json:"is_active"`
 	SortOrder         int       `json:"sort_order"`
 	CreatedAt         time.Time `json:"created_at"`
@@ -25,10 +26,10 @@ type TariffPrice struct {
 	AmountMinor    *int64          `json:"amount_minor,omitempty"`
 	StarsAmount    *int64          `json:"stars_amount,omitempty"`
 	AcceptedAssets []string        `json:"accepted_assets"`
-	IsActive       bool            `json:"is_active"`
-	SortOrder      int             `json:"sort_order"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	IsActive        bool            `json:"is_active"`
+	SortOrder       int             `json:"sort_order"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
 type TariffWithPrices struct {

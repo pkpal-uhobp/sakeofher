@@ -17,7 +17,7 @@ func NewTariffAdminHandler(services *service.Services) *TariffAdminHandler {
 }
 
 func (h *TariffAdminHandler) ListAll(w http.ResponseWriter, r *http.Request) {
-	items, err := h.services.Tariffs.ListAll(r.Context())
+	items, err := h.services.Tariffs.ListAllWithPrices(r.Context())
 	if err != nil {
 		WriteDomainError(w, err)
 		return
@@ -44,6 +44,7 @@ func (h *TariffAdminHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 
 func (h *TariffAdminHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var input domain.CreateTariffInput
+
 	if err := DecodeJSON(r, &input); err != nil {
 		WriteError(w, http.StatusBadRequest, err.Error())
 		return
@@ -86,6 +87,25 @@ func (h *TariffAdminHandler) Enable(w http.ResponseWriter, r *http.Request) {
 
 func (h *TariffAdminHandler) Disable(w http.ResponseWriter, r *http.Request) {
 	h.change(w, r, h.services.Tariffs.Disable)
+}
+
+func (h *TariffAdminHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt64(r, "id")
+	if err != nil {
+		WriteDomainError(w, err)
+		return
+	}
+
+	item, err := h.services.Tariffs.Delete(r.Context(), id)
+	if err != nil {
+		WriteDomainError(w, err)
+		return
+	}
+
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"ok":     true,
+		"tariff": item,
+	})
 }
 
 func (h *TariffAdminHandler) change(

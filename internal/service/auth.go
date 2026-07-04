@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"strings"
 	"time"
@@ -32,20 +33,29 @@ func NewAuthService(
 }
 
 func (s *authService) Login(ctx context.Context, input domain.LoginInput) (*domain.AuthSession, error) {
-	username := strings.TrimSpace(input.Username)
+	_ = ctx
+
+	username := strings.TrimSpace(input.Login)
+	if username == "" {
+		username = strings.TrimSpace(input.Username)
+	}
+
 	password := input.Password
 
 	if username == "" || password == "" {
 		return nil, domain.ErrInvalidInput
 	}
+
 	if strings.TrimSpace(s.adminUsername) == "" || s.adminPassword == "" {
 		return nil, domain.ErrUnauthorized
 	}
-	if username != s.adminUsername || !secureCompare(password, s.adminPassword) {
+
+	if !secureCompare(username, s.adminUsername) || !secureCompare(password, s.adminPassword) {
 		return nil, domain.ErrUnauthorized
 	}
 
 	jwtClaims := appjwt.NewAdminClaims(username, s.accessTTL)
+
 	accessToken, err := appjwt.Sign(s.jwtSecret, jwtClaims)
 	if err != nil {
 		return nil, err
@@ -61,5 +71,8 @@ func (s *authService) Login(ctx context.Context, input domain.LoginInput) (*doma
 }
 
 func secureCompare(given, expected string) bool {
-	return subtle.ConstantTimeCompare([]byte(given), []byte(expected)) == 1
+	givenHash := sha256.Sum256([]byte(given))
+	expectedHash := sha256.Sum256([]byte(expected))
+
+	return subtle.ConstantTimeCompare(givenHash[:], expectedHash[:]) == 1
 }

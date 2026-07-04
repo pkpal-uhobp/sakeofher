@@ -1,0 +1,48 @@
+.squad-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.squad-list {
+  display: grid;
+  gap: 10px;
+  max-height: 280px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 18px;
+  background: rgba(2, 6, 23, 0.38);
+}
+
+.squad-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.13);
+  border-radius: 15px;
+  background: rgba(15, 23, 42, 0.52);
+}
+
+.squad-item input {
+  width: 18px;
+  height: 18px;
+  accent-color: #0ea5e9;
+}
+
+.squad-item span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.squad-item strong {
+  color: #f8fafc;
+}
+
+.squad-item small {
+  color: #94a3b8;
+  word-break: break-all;
+}

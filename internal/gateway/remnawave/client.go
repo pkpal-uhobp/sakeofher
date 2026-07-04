@@ -18,8 +18,12 @@ import (
 
 const (
 	defaultTrafficResetStrategy = "NO_RESET"
-	statusActive               = "ACTIVE"
-	statusDisabled             = "DISABLED"
+	statusActive                = "ACTIVE"
+	statusDisabled              = "DISABLED"
+
+	// Remnawave accepts hwidDeviceLimit with minimum 0.
+	// We explicitly send 0 to avoid HWID/device limit in generated subscriptions.
+	noHWIDDeviceLimit = 0
 )
 
 type Client struct {
@@ -37,30 +41,32 @@ func NewClient(baseURL, token string, timeout time.Duration) *Client {
 }
 
 type createUserRequestDTO struct {
-	Username              string   `json:"username"`
-	Status                string   `json:"status,omitempty"`
-	TrafficLimitBytes     int64    `json:"trafficLimitBytes,omitempty"`
-	TrafficLimitStrategy  string   `json:"trafficLimitStrategy,omitempty"`
-	ExpireAt              string   `json:"expireAt"`
-	Description           string   `json:"description,omitempty"`
-	TelegramID            *int64   `json:"telegramId,omitempty"`
-	Email                 *string  `json:"email,omitempty"`
-	Tag                   *string  `json:"tag,omitempty"`
-	ActiveInternalSquads  []string `json:"activeInternalSquads,omitempty"`
+	Username             string   `json:"username"`
+	Status               string   `json:"status,omitempty"`
+	TrafficLimitBytes    int64    `json:"trafficLimitBytes,omitempty"`
+	TrafficLimitStrategy string   `json:"trafficLimitStrategy,omitempty"`
+	ExpireAt             string   `json:"expireAt"`
+	Description          string   `json:"description,omitempty"`
+	TelegramID           *int64   `json:"telegramId,omitempty"`
+	Email                *string  `json:"email,omitempty"`
+	Tag                  *string  `json:"tag,omitempty"`
+	HWIDDeviceLimit      int      `json:"hwidDeviceLimit"`
+	ActiveInternalSquads []string `json:"activeInternalSquads,omitempty"`
 }
 
 type updateUserRequestDTO struct {
-	UUID                  string   `json:"uuid"`
-	Username              string   `json:"username,omitempty"`
-	Status                string   `json:"status,omitempty"`
-	TrafficLimitBytes     *int64   `json:"trafficLimitBytes,omitempty"`
-	TrafficLimitStrategy  string   `json:"trafficLimitStrategy,omitempty"`
-	ExpireAt              *string  `json:"expireAt,omitempty"`
-	Description           *string  `json:"description,omitempty"`
-	TelegramID            *int64   `json:"telegramId,omitempty"`
-	Email                 *string  `json:"email,omitempty"`
-	Tag                   *string  `json:"tag,omitempty"`
-	ActiveInternalSquads  []string `json:"activeInternalSquads,omitempty"`
+	UUID                 string   `json:"uuid"`
+	Username             string   `json:"username,omitempty"`
+	Status               string   `json:"status,omitempty"`
+	TrafficLimitBytes    *int64   `json:"trafficLimitBytes,omitempty"`
+	TrafficLimitStrategy string   `json:"trafficLimitStrategy,omitempty"`
+	ExpireAt             *string  `json:"expireAt,omitempty"`
+	Description          *string  `json:"description,omitempty"`
+	TelegramID           *int64   `json:"telegramId,omitempty"`
+	Email                *string  `json:"email,omitempty"`
+	Tag                  *string  `json:"tag,omitempty"`
+	HWIDDeviceLimit      int      `json:"hwidDeviceLimit"`
+	ActiveInternalSquads []string `json:"activeInternalSquads,omitempty"`
 }
 
 type userResponseDTO struct {
@@ -113,6 +119,7 @@ func (c *Client) CreateUser(ctx context.Context, req domain.CreateRemnaUserReque
 		TelegramID:           req.TelegramID,
 		Email:                req.Email,
 		Tag:                  req.Tag,
+		HWIDDeviceLimit:      noHWIDDeviceLimit,
 		ActiveInternalSquads: req.ActiveInternalSquads,
 	}
 
@@ -155,6 +162,7 @@ func (c *Client) UpdateUser(ctx context.Context, req domain.UpdateRemnaUserReque
 		TelegramID:           req.TelegramID,
 		Email:                req.Email,
 		Tag:                  req.Tag,
+		HWIDDeviceLimit:      noHWIDDeviceLimit,
 		ActiveInternalSquads: req.ActiveInternalSquads,
 	}
 
@@ -245,6 +253,7 @@ func (c *Client) doJSON(ctx context.Context, method string, path string, payload
 		if err != nil {
 			return fmt.Errorf("marshal request: %w", err)
 		}
+
 		body = bytes.NewReader(raw)
 	}
 
@@ -262,11 +271,13 @@ func (c *Client) doJSON(ctx context.Context, method string, path string, payload
 	defer resp.Body.Close()
 
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+
 	if resp.StatusCode >= 300 {
 		var apiErr remnaError
 		if err := json.Unmarshal(raw, &apiErr); err == nil && (apiErr.Error != "" || apiErr.Message != nil || apiErr.ErrorCode != "") {
 			return fmt.Errorf("status %d: %+v", resp.StatusCode, apiErr)
 		}
+
 		return fmt.Errorf("status %d: %s", resp.StatusCode, string(raw))
 	}
 
@@ -279,6 +290,7 @@ func (c *Client) doJSON(ctx context.Context, method string, path string, payload
 		if err := json.Unmarshal(wrapped.Response, out); err != nil {
 			return fmt.Errorf("decode wrapped response: %w", err)
 		}
+
 		return nil
 	}
 
@@ -292,7 +304,6 @@ func (c *Client) doJSON(ctx context.Context, method string, path string, payload
 func (c *Client) authorize(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/json")
-
 	if req.Body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -319,7 +330,7 @@ func mapUser(user userResponseDTO) *domain.RemnaUser {
 		TrafficLimitBytes:        user.TrafficLimitBytes,
 		TrafficLimitStrategy:     user.TrafficLimitStrategy,
 		ExpireAt:                 user.ExpireAt,
-		LastTrafficResetAt:       user.LastTrafficResetAt,
+		LastTrafficResetAt:        user.LastTrafficResetAt,
 	}
 }
 
@@ -343,6 +354,7 @@ func valueInt64(value *int64) int64 {
 	if value == nil {
 		return 0
 	}
+
 	return *value
 }
 
@@ -350,6 +362,7 @@ func valueUnix(value *int64) int64 {
 	if value == nil {
 		return time.Now().AddDate(0, 0, 30).Unix()
 	}
+
 	return *value
 }
 

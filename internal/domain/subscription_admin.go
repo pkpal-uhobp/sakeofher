@@ -4,10 +4,10 @@ import "time"
 
 type SubscriptionListInput struct {
 	UserID     int64              `json:"user_id"`
-	TelegramID int64              `json:"telegram_id"`
+	TelegramID int64             `json:"telegram_id"`
 	Status     SubscriptionStatus `json:"status"`
-	Limit      int                `json:"limit"`
-	Offset     int                `json:"offset"`
+	Limit      int               `json:"limit"`
+	Offset     int               `json:"offset"`
 }
 
 type SubscriptionListResponse struct {
@@ -40,6 +40,6 @@ type UpdateSubscriptionInput struct {
 	ExpiresAt          *time.Time          `json:"expires_at,omitempty"`
 	CurrentPeriodStart *time.Time          `json:"current_period_start,omitempty"`
 	CurrentPeriodEnd   *time.Time          `json:"current_period_end,omitempty"`
-	TrafficLimitGB      *int64              `json:"traffic_limit_gb,omitempty"`
-	TrafficUsedGB       *int64              `json:"traffic_used_gb,omitempty"`
+	TrafficLimitGB     *int64              `json:"traffic_limit_gb,omitempty"`
+	TrafficUsedGB      *int64              `json:"traffic_used_gb,omitempty"`
 }

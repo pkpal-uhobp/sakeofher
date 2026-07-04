@@ -26,6 +26,10 @@ func NewWorkerService(
 	notifications NotificationService,
 	log *zap.Logger,
 ) WorkerService {
+	if log == nil {
+		log = zap.NewNop()
+	}
+
 	return &workerService{
 		repo:           repo,
 		subscriptions: subscriptions,
@@ -73,11 +77,6 @@ func (s *workerService) notifyExpiring(ctx context.Context, now time.Time) error
 	items, err := s.repo.Subscriptions.FindExpiringForNotifications(ctx, now, now.Add(72*time.Hour), 500)
 	if err != nil {
 		return err
-	}
-
-	if len(items) == 0 {
-		s.log.Info("worker notify expiring: no subscriptions found")
-		return nil
 	}
 
 	sent := 0
@@ -128,11 +127,6 @@ func (s *workerService) notifyLowTraffic(ctx context.Context) error {
 	items, err := s.repo.Subscriptions.FindLowTrafficForNotifications(ctx, 15*domain.BytesInGiB, 500)
 	if err != nil {
 		return err
-	}
-
-	if len(items) == 0 {
-		s.log.Info("worker notify traffic: no subscriptions found")
-		return nil
 	}
 
 	sent := 0

@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -13,6 +15,8 @@ import (
 const (
 	defaultAppLogFile   = "app.log"
 	defaultErrorLogFile = "error.log"
+	defaultMaxLogMB     = 50
+	defaultMaxBackups   = 5
 )
 
 func New(env string) (*zap.Logger, error) {
@@ -23,15 +27,9 @@ func New(env string) (*zap.Logger, error) {
 		level.SetLevel(zap.DebugLevel)
 	}
 
-	cores := make([]zapcore.Core, 0, 3)
-
-	// Console output stays enabled so `make run-api` and `make run-worker`
-	// keep showing logs in the terminal.
-	cores = append(cores, zapcore.NewCore(
-		consoleEncoder(env),
-		zapcore.Lock(os.Stdout),
-		level,
-	))
+	cores := []zapcore.Core{
+		zapcore.NewCore(consoleEncoder(env), zapcore.Lock(os.Stdout), level),
+	}
 
 	logFolder := strings.TrimSpace(os.Getenv("LOGGER_FOLDER"))
 	if logFolder != "" {
@@ -43,12 +41,11 @@ func New(env string) (*zap.Logger, error) {
 		cores = append(cores, appCore, errorCore)
 	}
 
-	options := []zap.Option{
+	log := zap.New(
+		zapcore.NewTee(cores...),
 		zap.AddCaller(),
 		zap.AddStacktrace(zapcore.ErrorLevel),
-	}
-
-	log := zap.New(zapcore.NewTee(cores...), options...)
+	)
 
 	log.Info(
 		"logger initialized",
@@ -57,6 +54,8 @@ func New(env string) (*zap.Logger, error) {
 		zap.Bool("file_logging_enabled", logFolder != ""),
 		zap.String("app_log", appLogPath(logFolder)),
 		zap.String("error_log", errorLogPath(logFolder)),
+		zap.Int("max_log_mb", maxLogMB()),
+		zap.Int("max_log_backups", maxLogBackups()),
 	)
 
 	return log, nil
@@ -67,28 +66,23 @@ func fileCores(logFolder string, level zap.AtomicLevel) (zapcore.Core, zapcore.C
 		return nil, nil, fmt.Errorf("create log folder %q: %w", logFolder, err)
 	}
 
-	appFile, err := os.OpenFile(appLogPath(logFolder), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	appWriter, err := newRotatingFileWriter(appLogPath(logFolder), maxLogMB(), maxLogBackups())
 	if err != nil {
-		return nil, nil, fmt.Errorf("open app log file: %w", err)
+		return nil, nil, fmt.Errorf("create app log writer: %w", err)
 	}
 
-	errorFile, err := os.OpenFile(errorLogPath(logFolder), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	errorWriter, err := newRotatingFileWriter(errorLogPath(logFolder), maxLogMB(), maxLogBackups())
 	if err != nil {
-		_ = appFile.Close()
-		return nil, nil, fmt.Errorf("open error log file: %w", err)
+		return nil, nil, fmt.Errorf("create error log writer: %w", err)
 	}
 
 	encoder := fileEncoder()
 
-	appCore := zapcore.NewCore(
-		encoder,
-		zapcore.Lock(appFile),
-		level,
-	)
+	appCore := zapcore.NewCore(encoder, appWriter, level)
 
 	errorCore := zapcore.NewCore(
 		encoder,
-		zapcore.Lock(errorFile),
+		errorWriter,
 		zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
 			return lvl >= zapcore.ErrorLevel
 		}),
@@ -142,4 +136,131 @@ func errorLogPath(logFolder string) string {
 	}
 
 	return filepath.Join(logFolder, defaultErrorLogFile)
+}
+
+func maxLogMB() int {
+	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv("LOGGER_MAX_MB")))
+	if err != nil || value <= 0 {
+		return defaultMaxLogMB
+	}
+
+	if value > 1024 {
+		return 1024
+	}
+
+	return value
+}
+
+func maxLogBackups() int {
+	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv("LOGGER_MAX_BACKUPS")))
+	if err != nil || value < 0 {
+		return defaultMaxBackups
+	}
+
+	if value > 50 {
+		return 50
+	}
+
+	return value
+}
+
+type rotatingFileWriter struct {
+	mu         sync.Mutex
+	path       string
+	maxBytes   int64
+	maxBackups int
+	file       *os.File
+	size       int64
+}
+
+func newRotatingFileWriter(path string, maxMB int, maxBackups int) (*rotatingFileWriter, error) {
+	writer := &rotatingFileWriter{
+		path:       path,
+		maxBytes:   int64(maxMB) * 1024 * 1024,
+		maxBackups: maxBackups,
+	}
+
+	if err := writer.open(); err != nil {
+		return nil, err
+	}
+
+	return writer, nil
+}
+
+func (w *rotatingFileWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.file == nil {
+		if err := w.open(); err != nil {
+			return 0, err
+		}
+	}
+
+	if w.maxBytes > 0 && w.size+int64(len(p)) > w.maxBytes {
+		if err := w.rotate(); err != nil {
+			return 0, err
+		}
+	}
+
+	n, err := w.file.Write(p)
+	w.size += int64(n)
+
+	return n, err
+}
+
+func (w *rotatingFileWriter) Sync() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.file == nil {
+		return nil
+	}
+
+	return w.file.Sync()
+}
+
+func (w *rotatingFileWriter) open() error {
+	file, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+
+	stat, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return err
+	}
+
+	w.file = file
+	w.size = stat.Size()
+
+	return nil
+}
+
+func (w *rotatingFileWriter) rotate() error {
+	if w.file != nil {
+		_ = w.file.Close()
+		w.file = nil
+	}
+
+	if w.maxBackups <= 0 {
+		_ = os.Remove(w.path)
+		return w.open()
+	}
+
+	for i := w.maxBackups - 1; i >= 1; i-- {
+		src := fmt.Sprintf("%s.%d", w.path, i)
+		dst := fmt.Sprintf("%s.%d", w.path, i+1)
+
+		if _, err := os.Stat(src); err == nil {
+			_ = os.Rename(src, dst)
+		}
+	}
+
+	if _, err := os.Stat(w.path); err == nil {
+		_ = os.Rename(w.path, fmt.Sprintf("%s.1", w.path))
+	}
+
+	return w.open()
 }

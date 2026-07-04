@@ -45,8 +45,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		zap.Duration("notify_interval", s.cfg.NotifyInterval),
 	)
 
-	// Run once immediately, so during local tests the worker writes useful logs
-	// without waiting one hour for the first ticker.
+	// Run immediately, not after the first hour.
 	s.runJob(ctx, "expire subscriptions", s.services.Workers.ExpireSubscriptions)
 	s.runJob(ctx, "sync remnawave usage", s.services.Workers.SyncUsage)
 	s.runJob(ctx, "reset traffic periods", s.services.Workers.ResetTrafficPeriods)

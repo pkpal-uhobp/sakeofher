@@ -2,11 +2,8 @@ package repository
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 
 	"sakeofher/internal/domain"
 )
@@ -72,7 +69,7 @@ func (r *SubscriptionRepository) FindExpiringForNotifications(
 
 	items := make([]domain.PublicSubscription, 0)
 	for rows.Next() {
-		item, err := scanWorkerPublicSubscriptionRow(rows)
+		item, err := r.scanPublicSubscriptionFromRows(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -114,7 +111,7 @@ func (r *SubscriptionRepository) FindLowTrafficForNotifications(
 
 	items := make([]domain.PublicSubscription, 0)
 	for rows.Next() {
-		item, err := scanWorkerPublicSubscriptionRow(rows)
+		item, err := r.scanPublicSubscriptionFromRows(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -127,74 +124,4 @@ func (r *SubscriptionRepository) FindLowTrafficForNotifications(
 	}
 
 	return items, nil
-}
-
-func scanWorkerPublicSubscriptionRow(row subscriptionScanner) (*domain.PublicSubscription, error) {
-	var out domain.PublicSubscription
-	err := row.Scan(
-		&out.Subscription.ID,
-		&out.Subscription.UserID,
-		&out.Subscription.TariffID,
-		&out.Subscription.LastPaymentID,
-		&out.Subscription.Status,
-		&out.Subscription.StartedAt,
-		&out.Subscription.ExpiresAt,
-		&out.Subscription.CurrentPeriodStart,
-		&out.Subscription.CurrentPeriodEnd,
-		&out.Subscription.TrafficLimitBytes,
-		&out.Subscription.TrafficUsedBytes,
-		&out.Subscription.PeriodStatus,
-		&out.Subscription.PublicToken,
-		&out.Subscription.LastRemnaCheckAt,
-		&out.Subscription.LastExpireNotificationAt,
-		&out.Subscription.LastTrafficNotificationAt,
-		&out.Subscription.Notified3Days,
-		&out.Subscription.Notified1Day,
-		&out.Subscription.NotifiedExpired,
-		&out.Subscription.Traffic80Notified,
-		&out.Subscription.Traffic95Notified,
-		&out.Subscription.TrafficExhaustedNotified,
-		&out.Subscription.CreatedAt,
-		&out.Subscription.UpdatedAt,
-
-		&out.User.ID,
-		&out.User.TelegramID,
-		&out.User.TelegramUsername,
-		&out.User.TelegramFirstName,
-		&out.User.TelegramLastName,
-		&out.User.LanguageCode,
-		&out.User.Alias,
-		&out.User.RemnaUUID,
-		&out.User.RemnaUsername,
-		&out.User.SubscriptionURL,
-		&out.User.Status,
-		&out.User.RemnaStatus,
-		&out.User.DisabledAt,
-		&out.User.DeleteAfter,
-		&out.User.DeletedAt,
-		&out.User.LastSeenAt,
-		&out.User.CreatedAt,
-		&out.User.UpdatedAt,
-
-		&out.Tariff.ID,
-		&out.Tariff.Code,
-		&out.Tariff.Title,
-		&out.Tariff.Description,
-		&out.Tariff.DurationDays,
-		&out.Tariff.PeriodDays,
-		&out.Tariff.TrafficLimitBytes,
-		&out.Tariff.IsActive,
-		&out.Tariff.SortOrder,
-		&out.Tariff.CreatedAt,
-		&out.Tariff.UpdatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, fmt.Errorf("scan worker public subscription: %w", err)
-	}
-
-	out.SubscriptionURL = out.User.SubscriptionURL
-	return &out, nil
 }

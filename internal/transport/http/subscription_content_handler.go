@@ -71,10 +71,6 @@ func (h *PublicHandler) GetBase64SubscriptionByTelegramID(w http.ResponseWriter,
 		return
 	}
 
-	// Important for Happ:
-	// sub-expire/sub-info are persistent app-management parameters. If they
-	// were once sent for an expired subscription, Happ can keep displaying the
-	// red renewal block until it receives explicit disabling parameters.
 	remote.Body = stripExpiredHappMarkersFromActiveBody(remote.Body)
 
 	copyRemoteResponseHeaders(w.Header(), remote.Header)
@@ -143,8 +139,6 @@ func (h *PublicHandler) makeExpiredSubscriptionResponse(
 ) *remoteSubscriptionResponse {
 	expiredHeaders := expiredSubscriptionHeaders(item)
 
-	// Prefer Remnawave's own disabled/expired subscription body because it is
-	// client-compatible. We still override/add our expired headers and bot URL.
 	if remote, err := h.tryFetchRemnawaveExpiredSubscription(ctx, r, item); err == nil {
 		for key, values := range expiredHeaders {
 			remote.Header.Del(key)
@@ -156,8 +150,6 @@ func (h *PublicHandler) makeExpiredSubscriptionResponse(
 		return remote
 	}
 
-	// Fallback: empty Base64 body. Do not return comment-only Base64 body,
-	// because Happ can try to parse such body as configs and show config error.
 	return &remoteSubscriptionResponse{
 		Body:   base64.StdEncoding.EncodeToString(nil),
 		Header: expiredHeaders,
@@ -206,7 +198,6 @@ func expiredSubscriptionHeaders(item *domain.PublicSubscription) http.Header {
 	headers.Set("subscription-userinfo", fmt.Sprintf("upload=0; download=0; total=1; expire=%d", expireAt))
 	headers.Set("profile-web-page-url", botURL)
 	headers.Set("support-url", botURL)
-
 	headers.Set("sub-expire", "1")
 	headers.Set("sub-expire-button-link", botURL)
 	headers.Set("sub-info-color", "red")
@@ -222,7 +213,6 @@ func expiredSubscriptionHeaders(item *domain.PublicSubscription) http.Header {
 }
 
 func disableExpiredHappBlocksForActive(headers http.Header) {
-	// Remove stale values copied from Remnawave or previous responses.
 	for _, key := range []string{
 		"sub-expire-button-link",
 		"sub-info-color",
@@ -232,9 +222,6 @@ func disableExpiredHappBlocksForActive(headers http.Header) {
 		headers.Del(key)
 	}
 
-	// Explicitly disable persistent Happ advanced blocks after renewal.
-	// Happ docs: sub-expire is disabled by any value different from true/1,
-	// and sub-info block is disabled by empty sub-info-text.
 	headers.Set("sub-expire", "0")
 	headers.Set("sub-info-text", "")
 	headers.Set("subscription-status", "active")

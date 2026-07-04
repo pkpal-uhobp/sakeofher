@@ -36,7 +36,7 @@ type SubscriptionWithUser struct {
 	Subscription Subscription `json:"subscription"`
 	User         User         `json:"user"`
 
-	// Filled only by repository methods that join tariffs.
+	// Filled by repository methods that join tariffs.
 	Tariff Tariff `json:"tariff"`
 }
 
@@ -45,6 +45,9 @@ type PublicSubscription struct {
 	User            User         `json:"user"`
 	Tariff          Tariff       `json:"tariff"`
 	SubscriptionURL *string      `json:"subscription_url,omitempty"`
+
+	TelegramBotURL *string `json:"telegram_bot_url,omitempty"`
+	BotURL         *string `json:"bot_url,omitempty"`
 }
 
 const BytesInGiB int64 = 1024 * 1024 * 1024

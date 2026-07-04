@@ -103,7 +103,7 @@ func (s *subscriptionService) CreateManual(ctx context.Context, input domain.Cre
 		return nil, err
 	}
 
-	active, err := s.repo.Subscriptions.GetActiveByUserID(ctx, input.UserID)
+	active, err := s.repo.Subscriptions.GetLatestByUserID(ctx, input.UserID)
 	if err != nil {
 		return nil, err
 	}

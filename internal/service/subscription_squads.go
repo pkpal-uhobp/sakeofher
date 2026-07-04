@@ -38,8 +38,6 @@ func (s *subscriptionService) ensureRemnaUserWithSquads(
 
 	uuid := strings.TrimSpace(*user.RemnaUUID)
 
-	// When the user was disabled because subscription expired/cancelled,
-	// restore him in Remnawave first, then update squads and subscription data.
 	if err := s.remna.EnableUser(ctx, uuid); err != nil && !isIgnorableRemnaAlreadyStateError(err) {
 		return nil, fmt.Errorf("enable remnawave user: %w", err)
 	}
@@ -57,8 +55,8 @@ func (s *subscriptionService) ensureRemnaUserWithSquads(
 	})
 }
 
-// removeRemnaUserFromAllSquads keeps its old name for compatibility,
-// but business behavior is: remove from squads + disable user in Remnawave.
+// Historical name kept for compatibility. Actual behavior:
+// remove user from squads and disable him in Remnawave.
 func (s *subscriptionService) removeRemnaUserFromAllSquads(ctx context.Context, item *domain.PublicSubscription) error {
 	if item == nil || item.User.RemnaUUID == nil || strings.TrimSpace(*item.User.RemnaUUID) == "" {
 		return nil
@@ -70,7 +68,6 @@ func (s *subscriptionService) removeRemnaUserFromAllSquads(ctx context.Context, 
 	trafficLimitBytes := item.Subscription.TrafficLimitBytes
 	username := remnaUsername(&item.User)
 
-	// Send [] explicitly before disabling, otherwise user can remain in squads.
 	if _, err := s.remna.UpdateUser(ctx, domain.UpdateRemnaUserRequest{
 		UUID:                 uuid,
 		Username:             username,

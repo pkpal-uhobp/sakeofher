@@ -51,20 +51,18 @@ type createUserRequestDTO struct {
 }
 
 type updateUserRequestDTO struct {
-	UUID                 string  `json:"uuid"`
-	Username             string  `json:"username,omitempty"`
-	Status               string  `json:"status,omitempty"`
-	TrafficLimitBytes    *int64  `json:"trafficLimitBytes,omitempty"`
-	TrafficLimitStrategy string  `json:"trafficLimitStrategy,omitempty"`
-	ExpireAt             *string `json:"expireAt,omitempty"`
-	Description          *string `json:"description,omitempty"`
-	TelegramID           *int64  `json:"telegramId,omitempty"`
-	Email                *string `json:"email,omitempty"`
-	Tag                  *string `json:"tag,omitempty"`
-	HWIDDeviceLimit      int     `json:"hwidDeviceLimit"`
-
-	// No omitempty: [] means remove the user from all internal squads.
-	ActiveInternalSquads []string `json:"activeInternalSquads"`
+	UUID                 string    `json:"uuid"`
+	Username             string    `json:"username,omitempty"`
+	Status               string    `json:"status,omitempty"`
+	TrafficLimitBytes    *int64    `json:"trafficLimitBytes,omitempty"`
+	TrafficLimitStrategy string    `json:"trafficLimitStrategy,omitempty"`
+	ExpireAt             *string   `json:"expireAt,omitempty"`
+	Description          *string   `json:"description,omitempty"`
+	TelegramID           *int64    `json:"telegramId,omitempty"`
+	Email                *string   `json:"email,omitempty"`
+	Tag                  *string   `json:"tag,omitempty"`
+	HWIDDeviceLimit      int       `json:"hwidDeviceLimit"`
+	ActiveInternalSquads *[]string `json:"activeInternalSquads,omitempty"`
 }
 
 type userResponseDTO struct {
@@ -149,6 +147,11 @@ func (c *Client) UpdateUser(ctx context.Context, req domain.UpdateRemnaUserReque
 		strategy = defaultTrafficResetStrategy
 	}
 
+	var squads *[]string
+	if req.ActiveInternalSquads != nil {
+		squads = &req.ActiveInternalSquads
+	}
+
 	dto := updateUserRequestDTO{
 		UUID:                 req.UUID,
 		Username:             req.Username,
@@ -161,7 +164,7 @@ func (c *Client) UpdateUser(ctx context.Context, req domain.UpdateRemnaUserReque
 		Email:                req.Email,
 		Tag:                  req.Tag,
 		HWIDDeviceLimit:      noHWIDDeviceLimit,
-		ActiveInternalSquads: req.ActiveInternalSquads,
+		ActiveInternalSquads: squads,
 	}
 
 	var out userResponseDTO

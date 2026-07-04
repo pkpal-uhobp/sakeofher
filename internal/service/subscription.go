@@ -431,7 +431,7 @@ func (s *subscriptionService) createOrExtendSiteSubscription(ctx context.Context
 func remnaUsername(user *domain.User) string {
 	candidates := make([]string, 0, 3)
 
-	// Admin "Username" is Telegram alias and it must be the main Remnawave name.
+	// Admin "Username" field is Telegram alias and must be Remnawave username.
 	if user.TelegramUsername != nil && strings.TrimSpace(*user.TelegramUsername) != "" {
 		candidates = append(candidates, *user.TelegramUsername)
 	}

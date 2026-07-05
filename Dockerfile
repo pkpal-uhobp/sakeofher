@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 FROM golang:1.23-alpine AS backend-builder
 
 ARG APP_CMD=api
@@ -7,7 +9,7 @@ COPY go.mod go.sum* ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /out/app ./cmd/${APP_CMD}
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/${APP_CMD}
 
 FROM alpine:3.20 AS backend
 

@@ -50,19 +50,25 @@ type createUserRequestDTO struct {
 	ActiveInternalSquads []string `json:"activeInternalSquads,omitempty"`
 }
 
+// Important: Remnawave PATCH /api/users does NOT accept activeInternalSquads.
+// Squads are synced separately through POST /api/users/bulk/update-squads.
 type updateUserRequestDTO struct {
-	UUID                 string    `json:"uuid"`
-	Username             string    `json:"username,omitempty"`
-	Status               string    `json:"status,omitempty"`
-	TrafficLimitBytes    *int64    `json:"trafficLimitBytes,omitempty"`
-	TrafficLimitStrategy string    `json:"trafficLimitStrategy,omitempty"`
-	ExpireAt             *string   `json:"expireAt,omitempty"`
-	Description          *string   `json:"description,omitempty"`
-	TelegramID           *int64    `json:"telegramId,omitempty"`
-	Email                *string   `json:"email,omitempty"`
-	Tag                  *string   `json:"tag,omitempty"`
-	HWIDDeviceLimit      int       `json:"hwidDeviceLimit"`
-	ActiveInternalSquads *[]string `json:"activeInternalSquads,omitempty"`
+	UUID                 string  `json:"uuid"`
+	Username             string  `json:"username,omitempty"`
+	Status               string  `json:"status,omitempty"`
+	TrafficLimitBytes    *int64  `json:"trafficLimitBytes,omitempty"`
+	TrafficLimitStrategy string  `json:"trafficLimitStrategy,omitempty"`
+	ExpireAt             *string `json:"expireAt,omitempty"`
+	Description          *string `json:"description,omitempty"`
+	TelegramID           *int64  `json:"telegramId,omitempty"`
+	Email                *string `json:"email,omitempty"`
+	Tag                  *string `json:"tag,omitempty"`
+	HWIDDeviceLimit      int     `json:"hwidDeviceLimit"`
+}
+
+type updateUserSquadsRequestDTO struct {
+	UUIDs                []string `json:"uuids"`
+	ActiveInternalSquads []string `json:"activeInternalSquads"`
 }
 
 type userResponseDTO struct {
@@ -75,7 +81,7 @@ type userResponseDTO struct {
 	TrafficLimitBytes        int64      `json:"trafficLimitBytes"`
 	TrafficLimitStrategy     string     `json:"trafficLimitStrategy"`
 	ExpireAt                 *time.Time `json:"expireAt"`
-	LastTrafficResetAt        *time.Time `json:"lastTrafficResetAt"`
+	LastTrafficResetAt       *time.Time `json:"lastTrafficResetAt"`
 	SubscriptionURL          string     `json:"subscriptionUrl"`
 }
 
@@ -95,16 +101,19 @@ func (c *Client) CreateUser(ctx context.Context, req domain.CreateRemnaUserReque
 	if c.isStub() {
 		return stubUser(req.Username, req.TrafficLimitBytes, req.ExpiresAtUnix), nil
 	}
-
 	if strings.TrimSpace(req.Username) == "" || req.ExpiresAtUnix <= 0 {
 		return nil, domain.ErrInvalidInput
+	}
+
+	resolvedSquads, err := c.resolveActiveInternalSquads(ctx, req.ActiveInternalSquads)
+	if err != nil {
+		return nil, err
 	}
 
 	strategy := req.TrafficResetStrategy
 	if strategy == "" {
 		strategy = defaultTrafficResetStrategy
 	}
-
 	dto := createUserRequestDTO{
 		Username:             req.Username,
 		Status:               statusActive,
@@ -116,14 +125,12 @@ func (c *Client) CreateUser(ctx context.Context, req domain.CreateRemnaUserReque
 		Email:                req.Email,
 		Tag:                  req.Tag,
 		HWIDDeviceLimit:      noHWIDDeviceLimit,
-		ActiveInternalSquads: req.ActiveInternalSquads,
+		ActiveInternalSquads: resolvedSquads,
 	}
-
 	var out userResponseDTO
 	if err := c.doJSON(ctx, http.MethodPost, "/api/users", dto, &out); err != nil {
 		return nil, fmt.Errorf("remnawave create user: %w", err)
 	}
-
 	return mapUser(out), nil
 }
 
@@ -131,7 +138,6 @@ func (c *Client) UpdateUser(ctx context.Context, req domain.UpdateRemnaUserReque
 	if c.isStub() {
 		return stubUser(req.Username, valueInt64(req.TrafficLimitBytes), valueUnix(req.ExpiresAtUnix)), nil
 	}
-
 	if strings.TrimSpace(req.UUID) == "" {
 		return nil, domain.ErrInvalidInput
 	}
@@ -141,15 +147,9 @@ func (c *Client) UpdateUser(ctx context.Context, req domain.UpdateRemnaUserReque
 		value := time.Unix(*req.ExpiresAtUnix, 0).UTC().Format(time.RFC3339Nano)
 		expireAt = &value
 	}
-
 	strategy := req.TrafficResetStrategy
 	if strategy == "" && req.TrafficLimitBytes != nil {
 		strategy = defaultTrafficResetStrategy
-	}
-
-	var squads *[]string
-	if req.ActiveInternalSquads != nil {
-		squads = &req.ActiveInternalSquads
 	}
 
 	dto := updateUserRequestDTO{
@@ -164,7 +164,6 @@ func (c *Client) UpdateUser(ctx context.Context, req domain.UpdateRemnaUserReque
 		Email:                req.Email,
 		Tag:                  req.Tag,
 		HWIDDeviceLimit:      noHWIDDeviceLimit,
-		ActiveInternalSquads: squads,
 	}
 
 	var out userResponseDTO
@@ -172,7 +171,39 @@ func (c *Client) UpdateUser(ctx context.Context, req domain.UpdateRemnaUserReque
 		return nil, fmt.Errorf("remnawave update user: %w", err)
 	}
 
+	// nil means "do not touch squads". Empty slice means "remove from all squads".
+	if req.ActiveInternalSquads != nil {
+		if err := c.UpdateUserInternalSquads(ctx, req.UUID, req.ActiveInternalSquads); err != nil {
+			return nil, err
+		}
+		fresh, err := c.GetUser(ctx, req.UUID)
+		if err == nil {
+			return fresh, nil
+		}
+	}
 	return mapUser(out), nil
+}
+
+func (c *Client) UpdateUserInternalSquads(ctx context.Context, remnaUUID string, squads []string) error {
+	if c.isStub() {
+		return nil
+	}
+	remnaUUID = strings.TrimSpace(remnaUUID)
+	if remnaUUID == "" {
+		return domain.ErrInvalidInput
+	}
+	resolvedSquads, err := c.resolveActiveInternalSquads(ctx, squads)
+	if err != nil {
+		return err
+	}
+	dto := updateUserSquadsRequestDTO{
+		UUIDs:                []string{remnaUUID},
+		ActiveInternalSquads: resolvedSquads,
+	}
+	if err := c.doJSON(ctx, http.MethodPost, "/api/users/bulk/update-squads", dto, nil); err != nil {
+		return fmt.Errorf("remnawave update user squads: %w", err)
+	}
+	return nil
 }
 
 func (c *Client) GetUser(ctx context.Context, remnaUUID string) (*domain.RemnaUser, error) {
@@ -185,16 +216,13 @@ func (c *Client) GetUser(ctx context.Context, remnaUUID string) (*domain.RemnaUs
 			UsedTrafficBytes:  0,
 		}, nil
 	}
-
 	if strings.TrimSpace(remnaUUID) == "" {
 		return nil, domain.ErrInvalidInput
 	}
-
 	var out userResponseDTO
 	if err := c.doJSON(ctx, http.MethodGet, "/api/users/"+url.PathEscape(remnaUUID), nil, &out); err != nil {
 		return nil, fmt.Errorf("remnawave get user: %w", err)
 	}
-
 	return mapUser(out), nil
 }
 
@@ -202,7 +230,6 @@ func (c *Client) EnableUser(ctx context.Context, remnaUUID string) error {
 	if c.isStub() {
 		return nil
 	}
-
 	return c.doNoResponse(ctx, http.MethodPost, "/api/users/"+url.PathEscape(remnaUUID)+"/actions/enable", nil)
 }
 
@@ -210,7 +237,6 @@ func (c *Client) DisableUser(ctx context.Context, remnaUUID string) error {
 	if c.isStub() {
 		return nil
 	}
-
 	return c.doNoResponse(ctx, http.MethodPost, "/api/users/"+url.PathEscape(remnaUUID)+"/actions/disable", nil)
 }
 
@@ -218,7 +244,6 @@ func (c *Client) DeleteUser(ctx context.Context, remnaUUID string) error {
 	if c.isStub() {
 		return nil
 	}
-
 	return c.doNoResponse(ctx, http.MethodDelete, "/api/users/"+url.PathEscape(remnaUUID), nil)
 }
 
@@ -226,16 +251,19 @@ func (c *Client) ResetTraffic(ctx context.Context, remnaUUID string) error {
 	if c.isStub() {
 		return nil
 	}
-
 	return c.doNoResponse(ctx, http.MethodPost, "/api/users/"+url.PathEscape(remnaUUID)+"/actions/reset-traffic", nil)
 }
 
 func (c *Client) GetUserTraffic(ctx context.Context, remnaUUID string) (*domain.RemnaTraffic, error) {
 	user, err := c.GetUser(ctx, remnaUUID)
 	if err != nil {
+		// A stale UUID in the site DB should not break the whole worker loop.
+		// ReconcileRemnaState will recreate the user and save a fresh UUID.
+		if isRemnaNotFoundError(err) {
+			return &domain.RemnaTraffic{}, nil
+		}
 		return nil, err
 	}
-
 	return &domain.RemnaTraffic{
 		UsedBytes:  user.UsedTrafficBytes,
 		LimitBytes: user.TrafficLimitBytes,
@@ -248,57 +276,44 @@ func (c *Client) doNoResponse(ctx context.Context, method string, path string, p
 
 func (c *Client) doJSON(ctx context.Context, method string, path string, payload any, out any) error {
 	var body io.Reader
-
 	if payload != nil {
 		raw, err := json.Marshal(payload)
 		if err != nil {
 			return fmt.Errorf("marshal request: %w", err)
 		}
-
 		body = bytes.NewReader(raw)
 	}
-
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return err
 	}
-
 	c.authorize(req)
-
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-
 	if resp.StatusCode >= 300 {
 		var apiErr remnaError
 		if err := json.Unmarshal(raw, &apiErr); err == nil && (apiErr.Error != "" || apiErr.Message != nil || apiErr.ErrorCode != "") {
 			return fmt.Errorf("status %d: %+v", resp.StatusCode, apiErr)
 		}
-
 		return fmt.Errorf("status %d: %s", resp.StatusCode, string(raw))
 	}
-
 	if out == nil {
 		return nil
 	}
-
 	var wrapped wrappedResponse[json.RawMessage]
 	if err := json.Unmarshal(raw, &wrapped); err == nil && len(wrapped.Response) > 0 {
 		if err := json.Unmarshal(wrapped.Response, out); err != nil {
 			return fmt.Errorf("decode wrapped response: %w", err)
 		}
-
 		return nil
 	}
-
 	if err := json.Unmarshal(raw, out); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
-
 	return nil
 }
 
@@ -314,12 +329,23 @@ func (c *Client) isStub() bool {
 	return c.baseURL == "" || c.token == "" || strings.Contains(c.baseURL, "example.com")
 }
 
+func isRemnaNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "status 404") ||
+		strings.Contains(message, "user not found") ||
+		strings.Contains(message, "not found") ||
+		strings.Contains(message, "a025") ||
+		strings.Contains(message, "a063")
+}
+
 func mapUser(user userResponseDTO) *domain.RemnaUser {
 	status := user.Status
 	if status == "" {
 		status = statusActive
 	}
-
 	return &domain.RemnaUser{
 		UUID:                     user.UUID,
 		ShortUUID:                user.ShortUUID,
@@ -331,14 +357,13 @@ func mapUser(user userResponseDTO) *domain.RemnaUser {
 		TrafficLimitBytes:        user.TrafficLimitBytes,
 		TrafficLimitStrategy:     user.TrafficLimitStrategy,
 		ExpireAt:                 user.ExpireAt,
-		LastTrafficResetAt:        user.LastTrafficResetAt,
+		LastTrafficResetAt:       user.LastTrafficResetAt,
 	}
 }
 
 func stubUser(username string, trafficLimitBytes int64, expiresAtUnix int64) *domain.RemnaUser {
 	uuid := randomUUID()
 	expireAt := time.Unix(expiresAtUnix, 0).UTC()
-
 	return &domain.RemnaUser{
 		UUID:                 uuid,
 		ShortUUID:            strings.Split(uuid, "-")[0],
@@ -355,7 +380,6 @@ func valueInt64(value *int64) int64 {
 	if value == nil {
 		return 0
 	}
-
 	return *value
 }
 
@@ -363,7 +387,6 @@ func valueUnix(value *int64) int64 {
 	if value == nil {
 		return time.Now().AddDate(0, 0, 30).Unix()
 	}
-
 	return *value
 }
 
@@ -372,10 +395,8 @@ func randomUUID() string {
 	if _, err := rand.Read(b); err != nil {
 		return fmt.Sprintf("00000000-0000-4000-8000-%012d", time.Now().UnixNano()%1000000000000)
 	}
-
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
-
 	return fmt.Sprintf(
 		"%s-%s-%s-%s-%s",
 		hex.EncodeToString(b[0:4]),

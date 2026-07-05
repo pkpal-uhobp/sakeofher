@@ -91,7 +91,7 @@ func tariffsMessage(tariffs []domain.TariffWithPrices) string {
 			b.WriteByte('\n')
 		}
 	}
-	b.WriteString("\nПосле выбора тарифа выберите доступный способ оплаты. Telegram Stars уже работает, CryptoBot/Tribute будут добавлены следующим этапом.")
+	b.WriteString("\nПосле выбора тарифа выберите доступный способ оплаты.")
 	return b.String()
 }
 
@@ -280,46 +280,71 @@ func optionalString(value string) *string {
 
 func tariffPriceShort(item domain.TariffWithPrices) string {
 	for _, price := range item.Prices {
-		if price.IsActive && price.Provider == domain.PaymentProviderTelegramStars && price.StarsAmount != nil && *price.StarsAmount > 0 {
+		if !price.IsActive || price.Provider == domain.PaymentProviderTribute {
+			continue
+		}
+		if price.Provider == domain.PaymentProviderTelegramStars && price.StarsAmount != nil && *price.StarsAmount > 0 {
 			return fmt.Sprintf("%d Stars", *price.StarsAmount)
 		}
 	}
+
 	for _, price := range item.Prices {
-		if price.IsActive && price.AmountMinor != nil && *price.AmountMinor > 0 {
+		if !price.IsActive || price.Provider == domain.PaymentProviderTribute {
+			continue
+		}
+		if price.AmountMinor != nil && *price.AmountMinor > 0 {
 			return moneyRubMinor(price.AmountMinor)
 		}
 	}
+
 	if item.PriceRub > 0 {
 		return fmt.Sprintf("%d ₽", item.PriceRub)
 	}
+
 	return "цена не указана"
 }
 
 func tariffPricesLabel(item domain.TariffWithPrices) string {
 	labels := make([]string, 0, len(item.Prices))
 	for _, price := range item.Prices {
-		if !price.IsActive {
+		if !price.IsActive || price.Provider == domain.PaymentProviderTribute {
 			continue
 		}
-		labels = append(labels, priceLabel(price))
+
+		label := priceLabel(price)
+		if label == "" {
+			continue
+		}
+
+		labels = append(labels, label)
 	}
+
 	if len(labels) == 0 {
 		return "нет активных способов оплаты"
 	}
+
 	return strings.Join(labels, ", ")
 }
 
 func tariffPricesMultiline(item domain.TariffWithPrices) string {
 	lines := make([]string, 0, len(item.Prices))
 	for _, price := range item.Prices {
-		if !price.IsActive {
+		if !price.IsActive || price.Provider == domain.PaymentProviderTribute {
 			continue
 		}
-		lines = append(lines, "• "+priceLabel(price))
+
+		label := priceLabel(price)
+		if label == "" {
+			continue
+		}
+
+		lines = append(lines, "• "+label)
 	}
+
 	if len(lines) == 0 {
 		return "• нет активных способов оплаты"
 	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -327,13 +352,13 @@ func priceLabel(price domain.TariffPrice) string {
 	switch price.Provider {
 	case domain.PaymentProviderTelegramStars:
 		if price.StarsAmount != nil {
-			return fmt.Sprintf("Telegram Stars — %d ", *price.StarsAmount)
+			return fmt.Sprintf("Telegram Stars — %d", *price.StarsAmount)
 		}
 		return "Telegram Stars"
 	case domain.PaymentProviderCryptoBot:
 		return "CryptoBot — " + priceAmountLabel(price)
 	case domain.PaymentProviderTribute:
-		return "Tribute — " + priceAmountLabel(price)
+		return ""
 	default:
 		return string(price.Provider) + " — " + priceAmountLabel(price)
 	}

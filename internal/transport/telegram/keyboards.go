@@ -54,13 +54,6 @@ func paymentMethodsKeyboard(item domain.TariffWithPrices, allowFree bool) *inlin
 					CallbackData: fmt.Sprintf("pay:crypto:%d", price.ID),
 				}})
 			}
-		case domain.PaymentProviderTribute:
-			if price.PaymentMethod == domain.PaymentMethodRub {
-				rows = append(rows, []inlineKeyboardButton{{
-					Text:         fmt.Sprintf("Tribute — %s", priceAmountLabel(price)),
-					CallbackData: fmt.Sprintf("pay:tribute:%d", price.ID),
-				}})
-			}
 		}
 	}
 	if allowFree {

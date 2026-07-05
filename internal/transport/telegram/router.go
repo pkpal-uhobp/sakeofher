@@ -167,8 +167,6 @@ func (r *Router) handleCallback(ctx context.Context, upd update) error {
 		return r.bot.handleCryptoBotPaymentCheck(ctx, upd, strings.TrimPrefix(data, "pay:crypto_check:"))
 	case strings.HasPrefix(data, "pay:crypto:"):
 		return r.bot.handleCryptoBotPayment(ctx, upd, strings.TrimPrefix(data, "pay:crypto:"))
-	case strings.HasPrefix(data, "pay:tribute:"):
-		return r.bot.handleExternalPaymentNotReady(ctx, upd, "Tribute")
 	case strings.HasPrefix(data, "free:activate:"):
 		return r.bot.activateWithoutPayment(ctx, upd, strings.TrimPrefix(data, "free:activate:"))
 	case strings.HasPrefix(data, "dev:activate:"):

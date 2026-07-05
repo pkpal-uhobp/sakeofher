@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"go.uber.org/zap"
+
 	"sakeofher/internal/domain"
 )
 
@@ -27,6 +28,7 @@ func (r *Router) Handle(ctx context.Context, upd update) error {
 	if upd.CallbackQuery != nil {
 		return r.handleCallback(ctx, upd)
 	}
+
 	return nil
 }
 
@@ -35,7 +37,7 @@ func (r *Router) handlePreCheckout(ctx context.Context, upd update) error {
 	if q == nil {
 		return nil
 	}
-	// Telegram requires pre_checkout_query to be answered fast. Fulfillment happens later in successful_payment.
+
 	return r.bot.answerPreCheckout(ctx, q.ID, true, "")
 }
 
@@ -44,9 +46,11 @@ func (r *Router) handleMessage(ctx context.Context, upd update) error {
 	if msg == nil || msg.From == nil {
 		return nil
 	}
+
 	if _, err := r.ensureUser(ctx, *msg.From); err != nil {
 		return err
 	}
+
 	if msg.SuccessfulPayment != nil {
 		return r.bot.handleSuccessfulPayment(ctx, upd)
 	}
@@ -55,6 +59,7 @@ func (r *Router) handleMessage(ctx context.Context, upd update) error {
 	if text == "" {
 		return r.bot.showMainMenu(ctx, upd)
 	}
+
 	if r.bot.hasAdminState(msg.From.ID) {
 		return r.bot.handleAdminStateInput(ctx, upd)
 	}
@@ -131,11 +136,14 @@ func (r *Router) handleCallback(ctx context.Context, upd update) error {
 	if cb == nil {
 		return nil
 	}
+
 	if _, err := r.ensureUser(ctx, cb.From); err != nil {
 		_ = r.bot.answerCallback(ctx, cb.ID, "Не удалось сохранить пользователя", true)
 		return err
 	}
+
 	data := strings.TrimSpace(cb.Data)
+
 	if err := r.bot.answerCallback(ctx, cb.ID, "", false); err != nil {
 		r.bot.log.Debug("telegram answerCallback failed", zap.Error(err))
 	}
@@ -155,8 +163,10 @@ func (r *Router) handleCallback(ctx context.Context, upd update) error {
 		return r.bot.showTariffPaymentOptions(ctx, upd, strings.TrimPrefix(data, "tariff:"))
 	case strings.HasPrefix(data, "pay:stars:"):
 		return r.bot.handleStarsPayment(ctx, upd, strings.TrimPrefix(data, "pay:stars:"))
+	case strings.HasPrefix(data, "pay:crypto_check:"):
+		return r.bot.handleCryptoBotPaymentCheck(ctx, upd, strings.TrimPrefix(data, "pay:crypto_check:"))
 	case strings.HasPrefix(data, "pay:crypto:"):
-		return r.bot.handleExternalPaymentNotReady(ctx, upd, "CryptoBot")
+		return r.bot.handleCryptoBotPayment(ctx, upd, strings.TrimPrefix(data, "pay:crypto:"))
 	case strings.HasPrefix(data, "pay:tribute:"):
 		return r.bot.handleExternalPaymentNotReady(ctx, upd, "Tribute")
 	case strings.HasPrefix(data, "free:activate:"):
@@ -184,8 +194,6 @@ func (r *Router) ensureUser(ctx context.Context, user tgUser) (*domain.User, err
 		return saved, err
 	}
 
-	// Keep a human-readable alias in the DB as soon as the user writes to the bot.
-	// Telegram ID is already saved in users.telegram_id; alias is useful for admin lists and Remnawave names.
 	if saved.Alias == nil || strings.TrimSpace(*saved.Alias) == "" {
 		alias := defaultTelegramAlias(user)
 		if alias != "" {
@@ -197,6 +205,7 @@ func (r *Router) ensureUser(ctx context.Context, user tgUser) (*domain.User, err
 			}
 		}
 	}
+
 	return saved, nil
 }
 
@@ -205,12 +214,18 @@ func defaultTelegramAlias(user tgUser) string {
 	if username != "" {
 		return "@" + strings.TrimPrefix(username, "@")
 	}
-	fullName := strings.TrimSpace(strings.Join([]string{strings.TrimSpace(user.FirstName), strings.TrimSpace(user.LastName)}, " "))
+
+	fullName := strings.TrimSpace(strings.Join([]string{
+		strings.TrimSpace(user.FirstName),
+		strings.TrimSpace(user.LastName),
+	}, " "))
 	if fullName != "" {
 		return fullName
 	}
+
 	if user.ID > 0 {
 		return "tg_" + strconv.FormatInt(user.ID, 10)
 	}
+
 	return ""
 }

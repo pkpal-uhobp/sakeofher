@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"go.uber.org/zap"
@@ -49,6 +50,11 @@ type PaymentService interface {
 	CreatePayment(ctx context.Context, input domain.CreatePaymentInput) (*domain.Payment, error)
 	MarkPaidForDev(ctx context.Context, paymentID int64, providerPaymentID string) (*domain.Payment, error)
 	HandlePaymentPaid(ctx context.Context, input domain.PaymentPaidInput) error
+	ConfirmTelegramStarsPayment(ctx context.Context, input domain.TelegramStarsPaidInput) (*domain.Payment, error)
+	CreateCryptoBotPayment(ctx context.Context, input domain.CreateCryptoBotPaymentInput) (*domain.Payment, error)
+	CheckCryptoBotPayment(ctx context.Context, paymentID int64) (*domain.Payment, error)
+	PollCryptoBotPayments(ctx context.Context, limit int) error
+	HandleCryptoBotWebhook(ctx context.Context, rawPayload json.RawMessage) error
 	RetryFailedActivations(ctx context.Context, limit int) error
 }
 
@@ -62,7 +68,6 @@ type SubscriptionService interface {
 	SyncRemnaUsage(ctx context.Context, limit int) error
 	ResetTrafficPeriods(ctx context.Context, limit int) error
 	ReconcileRemnaState(ctx context.Context, limit int) error
-
 	List(ctx context.Context, input domain.SubscriptionListInput) (*domain.SubscriptionListResponse, error)
 	GetByID(ctx context.Context, id int64) (*domain.PublicSubscription, error)
 	CreateManual(ctx context.Context, input domain.CreateManualSubscriptionInput) (*domain.PublicSubscription, error)
@@ -79,6 +84,7 @@ type NotificationService interface {
 }
 
 type AdminService interface{}
+
 type BroadcastService interface{}
 
 type WorkerService interface {

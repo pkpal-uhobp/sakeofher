@@ -23,7 +23,6 @@ func (s *userService) GetOrCreateTelegramUser(ctx context.Context, input domain.
 	if input.TelegramID <= 0 {
 		return nil, domain.ErrInvalidInput
 	}
-
 	return s.repo.Users.CreateOrUpdateTelegramUser(ctx, input)
 }
 
@@ -31,12 +30,14 @@ func (s *userService) GetByTelegramID(ctx context.Context, telegramID int64) (*d
 	if telegramID <= 0 {
 		return nil, domain.ErrInvalidInput
 	}
-
 	return s.repo.Users.GetByTelegramID(ctx, telegramID)
 }
 
 func (s *userService) List(ctx context.Context, input domain.UserListInput) (*domain.UserListResponse, error) {
-	if input.Status != "" && input.Status != domain.UserStatusActive && input.Status != domain.UserStatusBlocked && input.Status != domain.UserStatusDeleted {
+	if input.Status != "" &&
+		input.Status != domain.UserStatusActive &&
+		input.Status != domain.UserStatusBlocked &&
+		input.Status != domain.UserStatusDeleted {
 		return nil, domain.ErrInvalidInput
 	}
 
@@ -70,7 +71,6 @@ func (s *userService) GetByID(ctx context.Context, id int64) (*domain.User, erro
 	if id <= 0 {
 		return nil, domain.ErrInvalidInput
 	}
-
 	return s.repo.Users.GetByID(ctx, id)
 }
 
@@ -108,7 +108,6 @@ func (s *userService) Update(ctx context.Context, id int64, input domain.UpdateU
 		if username == "" {
 			username = strings.TrimSpace(stringValue(updated.Alias))
 		}
-
 		if username != "" {
 			_, _ = remnaClientFromEnv().UpdateUser(ctx, domain.UpdateRemnaUserRequest{
 				UUID:     *updated.RemnaUUID,
@@ -131,8 +130,11 @@ func (s *userService) Block(ctx context.Context, id int64) (*domain.User, error)
 	}
 
 	if user.RemnaUUID != nil && strings.TrimSpace(*user.RemnaUUID) != "" {
-		if err := remnaClientFromEnv().DisableUser(ctx, *user.RemnaUUID); err != nil {
-			return nil, err
+		if err := remnaClientFromEnv().DisableUser(ctx, strings.TrimSpace(*user.RemnaUUID)); err != nil {
+			// Do not block local admin action because of stale Remnawave UUID.
+			if !isRemnaNotFoundError(err) && !isIgnorableRemnaAlreadyStateError(err) {
+				return nil, err
+			}
 		}
 	}
 
@@ -150,8 +152,12 @@ func (s *userService) Unblock(ctx context.Context, id int64) (*domain.User, erro
 	}
 
 	if user.RemnaUUID != nil && strings.TrimSpace(*user.RemnaUUID) != "" {
-		if err := remnaClientFromEnv().EnableUser(ctx, *user.RemnaUUID); err != nil {
-			return nil, err
+		if err := remnaClientFromEnv().EnableUser(ctx, strings.TrimSpace(*user.RemnaUUID)); err != nil {
+			// If UUID is stale, make the site user active anyway.
+			// Active subscription reconciliation will recreate Remnawave user later.
+			if !isRemnaNotFoundError(err) && !isIgnorableRemnaAlreadyStateError(err) {
+				return nil, err
+			}
 		}
 	}
 
@@ -169,8 +175,10 @@ func (s *userService) MarkDeleted(ctx context.Context, id int64) (*domain.User, 
 	}
 
 	if user.RemnaUUID != nil && strings.TrimSpace(*user.RemnaUUID) != "" {
-		if err := remnaClientFromEnv().DeleteUser(ctx, *user.RemnaUUID); err != nil {
-			return nil, err
+		if err := remnaClientFromEnv().DeleteUser(ctx, strings.TrimSpace(*user.RemnaUUID)); err != nil {
+			if !isRemnaNotFoundError(err) {
+				return nil, err
+			}
 		}
 	}
 
@@ -189,7 +197,6 @@ func stringValue(value *string) string {
 	if value == nil {
 		return ""
 	}
-
 	return *value
 }
 
@@ -202,10 +209,8 @@ func normalizeUserRemnaUsername(value string, id int64) string {
 	if len(value) > 36 {
 		value = value[:36]
 	}
-
 	if len(value) < 3 {
 		return "user_" + strings.TrimPrefix(strings.TrimSpace(time.Now().Format("150405")), "-")
 	}
-
 	return value
 }

@@ -10,12 +10,9 @@ import (
 	"sakeofher/internal/domain"
 )
 
-const (
-	remnaTrafficStrategyNoReset = "NO_RESET"
-	remnaTrafficStrategyDay     = "DAY"
-	remnaTrafficStrategyWeek    = "WEEK"
-	remnaTrafficStrategyMonth   = "MONTH"
-)
+type remnaSquadUpdater interface {
+	UpdateUserSquads(ctx context.Context, uuids []string, activeInternalSquads []string) error
+}
 
 func (s *subscriptionService) ensureRemnaUserWithSquads(
 	ctx context.Context,
@@ -24,51 +21,35 @@ func (s *subscriptionService) ensureRemnaUserWithSquads(
 	expiresAt time.Time,
 	activeInternalSquads []string,
 ) (*domain.RemnaUser, error) {
-	return s.ensureRemnaUserWithSquadsAndStrategy(
-		ctx,
-		user,
-		trafficLimitBytes,
-		expiresAt,
-		activeInternalSquads,
-		remnaTrafficStrategyNoReset,
-	)
-}
-
-func (s *subscriptionService) ensureRemnaUserWithSquadsAndStrategy(
-	ctx context.Context,
-	user *domain.User,
-	trafficLimitBytes int64,
-	expiresAt time.Time,
-	activeInternalSquads []string,
-	trafficResetStrategy string,
-) (*domain.RemnaUser, error) {
 	username := remnaUsername(user)
 	description := fmt.Sprintf("Telegram ID: %d", user.TelegramID)
 	expiresAtUnix := expiresAt.Unix()
 	squads := normalizeServiceSquads(activeInternalSquads)
-	strategy := normalizeRemnaTrafficResetStrategy(trafficResetStrategy)
 
-	createReq := domain.CreateRemnaUserRequest{
-		Username:             username,
-		TrafficLimitBytes:    trafficLimitBytes,
-		ExpiresAtUnix:        expiresAtUnix,
-		TrafficResetStrategy: strategy,
-		Description:          description,
-		TelegramID:           &user.TelegramID,
-		ActiveInternalSquads: squads,
+	create := func() (*domain.RemnaUser, error) {
+		remnaUser, err := s.remna.CreateUser(ctx, domain.CreateRemnaUserRequest{
+			Username:              username,
+			TrafficLimitBytes:     trafficLimitBytes,
+			ExpiresAtUnix:         expiresAtUnix,
+			TrafficResetStrategy:  "NO_RESET",
+			Description:           description,
+			TelegramID:            &user.TelegramID,
+			ActiveInternalSquads:  squads,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return remnaUser, nil
 	}
 
 	if user.RemnaUUID == nil || strings.TrimSpace(*user.RemnaUUID) == "" || string(user.RemnaStatus) == "deleted" || string(user.RemnaStatus) == "not_created" {
-		return s.remna.CreateUser(ctx, createReq)
+		return create()
 	}
 
 	uuid := strings.TrimSpace(*user.RemnaUUID)
 	if err := s.remna.EnableUser(ctx, uuid); err != nil {
-		// If Remnawave was wiped or the user was deleted manually from the panel,
-		// the site DB still keeps the old UUID. Do not fail the worker forever:
-		// create a fresh Remnawave user and let the caller save the new UUID/URL.
-		if isRemnaNotFoundError(err) {
-			return s.remna.CreateUser(ctx, createReq)
+		if isIgnorableRemnaMissingError(err) || isRemnaNotFoundError(err) {
+			return create()
 		}
 		if !isIgnorableRemnaAlreadyStateError(err) {
 			return nil, fmt.Errorf("enable remnawave user: %w", err)
@@ -81,56 +62,50 @@ func (s *subscriptionService) ensureRemnaUserWithSquadsAndStrategy(
 		Status:               "ACTIVE",
 		TrafficLimitBytes:    &trafficLimitBytes,
 		ExpiresAtUnix:        &expiresAtUnix,
-		TrafficResetStrategy: strategy,
+		TrafficResetStrategy: "NO_RESET",
 		Description:          &description,
 		TelegramID:           &user.TelegramID,
-		ActiveInternalSquads: squads,
 	})
 	if err != nil {
-		if isRemnaNotFoundError(err) {
-			return s.remna.CreateUser(ctx, createReq)
+		if isIgnorableRemnaMissingError(err) || isRemnaNotFoundError(err) {
+			return create()
 		}
 		return nil, err
 	}
+
+	// Only assign squads when we actually have squads.
+	// Do not call /api/users/bulk/update-squads with an empty list: some Remnawave
+	// versions fail with A088 ("Bulk add inbounds to users error").
+	if len(squads) > 0 {
+		if err := s.syncRemnaUserSquads(ctx, remnaUser.UUID, squads); err != nil {
+			if isIgnorableRemnaMissingError(err) || isRemnaNotFoundError(err) {
+				return create()
+			}
+			return nil, err
+		}
+	}
+
 	return remnaUser, nil
 }
 
 // Historical name kept for compatibility.
-// Actual behavior: remove user from squads and disable him in Remnawave.
+// Actual behavior now: disable user in Remnawave.
+// Do not remove squads through /api/users/bulk/update-squads with an empty array:
+// Remnawave may return A088 and the site/bot operation becomes HTTP 500.
 func (s *subscriptionService) removeRemnaUserFromAllSquads(ctx context.Context, item *domain.PublicSubscription) error {
 	if item == nil || item.User.RemnaUUID == nil || strings.TrimSpace(*item.User.RemnaUUID) == "" {
 		return nil
 	}
 
 	uuid := strings.TrimSpace(*item.User.RemnaUUID)
-	description := fmt.Sprintf("Telegram ID: %d; subscription expired or disabled", item.User.TelegramID)
-	expiresAtUnix := item.Subscription.ExpiresAt.Unix()
-	trafficLimitBytes := item.Subscription.TrafficLimitBytes
-	username := remnaUsername(&item.User)
-	strategy := remnaTrafficResetStrategyForTariff(item.Tariff)
 
-	if _, err := s.remna.UpdateUser(ctx, domain.UpdateRemnaUserRequest{
-		UUID:                 uuid,
-		Username:             username,
-		Status:               "ACTIVE",
-		TrafficLimitBytes:    &trafficLimitBytes,
-		ExpiresAtUnix:        &expiresAtUnix,
-		TrafficResetStrategy: strategy,
-		Description:          &description,
-		TelegramID:           &item.User.TelegramID,
-		ActiveInternalSquads: []string{},
-	}); err != nil {
-		if isRemnaNotFoundError(err) {
-			return nil
-		}
-		return fmt.Errorf("remove remnawave user from squads before disable: %w", err)
-	}
 	if err := s.remna.DisableUser(ctx, uuid); err != nil {
-		if isRemnaNotFoundError(err) || isIgnorableRemnaAlreadyStateError(err) {
+		if isIgnorableRemnaMissingError(err) || isRemnaNotFoundError(err) || isIgnorableRemnaAlreadyStateError(err) {
 			return nil
 		}
 		return fmt.Errorf("disable remnawave user: %w", err)
 	}
+
 	return nil
 }
 
@@ -155,13 +130,12 @@ func (s *subscriptionService) restoreRemnaUserSquads(
 		squads = defaultRemnaSquadsFromEnv()
 	}
 
-	return s.ensureRemnaUserWithSquadsAndStrategy(
+	return s.ensureRemnaUserWithSquads(
 		ctx,
 		&item.User,
 		item.Subscription.TrafficLimitBytes,
 		item.Subscription.ExpiresAt,
 		squads,
-		remnaTrafficResetStrategyForTariff(item.Tariff),
 	)
 }
 
@@ -173,79 +147,48 @@ func (s *subscriptionService) savePreferredRemnaSquads(ctx context.Context, user
 	return s.repo.Users.SetRemnaActiveSquads(ctx, userID, squads)
 }
 
+func (s *subscriptionService) syncRemnaUserSquads(ctx context.Context, remnaUUID string, squads []string) error {
+	remnaUUID = strings.TrimSpace(remnaUUID)
+	squads = normalizeServiceSquads(squads)
+	if remnaUUID == "" || len(squads) == 0 {
+		return nil
+	}
+	updater, ok := s.remna.(remnaSquadUpdater)
+	if !ok {
+		return nil
+	}
+	return updater.UpdateUserSquads(ctx, []string{remnaUUID}, squads)
+}
+
 func normalizeServiceSquads(squads []string) []string {
 	out := make([]string, 0, len(squads))
 	seen := make(map[string]struct{})
 	for _, raw := range squads {
-		for _, part := range strings.Split(raw, ",") {
-			part = strings.TrimSpace(part)
-			if part == "" {
+		for _, item := range strings.Split(raw, ",") {
+			item = strings.TrimSpace(item)
+			if item == "" {
 				continue
 			}
-			key := strings.ToLower(part)
+			key := strings.ToLower(item)
 			if _, ok := seen[key]; ok {
 				continue
 			}
 			seen[key] = struct{}{}
-			out = append(out, part)
+			out = append(out, item)
 		}
 	}
 	return out
 }
 
 func defaultRemnaSquadsFromEnv() []string {
-	raw := strings.TrimSpace(os.Getenv("REMNAWAVE_DEFAULT_INTERNAL_SQUADS"))
+	raw := strings.TrimSpace(os.Getenv("BOT_REMNAWAVE_INTERNAL_SQUADS"))
+	if raw == "" {
+		raw = strings.TrimSpace(os.Getenv("REMNAWAVE_DEFAULT_INTERNAL_SQUADS"))
+	}
 	if raw == "" {
 		return nil
 	}
 	return normalizeServiceSquads(strings.Split(raw, ","))
-}
-
-func remnaTrafficResetStrategyForTariff(_ domain.Tariff) string {
-	// The site DB is the source of truth for paid traffic periods.
-	// For multi-month tariffs we may advance to the next paid period immediately
-	// when traffic is exhausted, so Remnawave must not perform an extra calendar
-	// reset on its own. The worker calls /actions/reset-traffic exactly when the
-	// site period rolls over.
-	return remnaTrafficStrategyNoReset
-}
-
-func remnaTrafficResetStrategy(periodDays int) string {
-	switch {
-	case periodDays == 1:
-		return remnaTrafficStrategyDay
-	case periodDays >= 6 && periodDays <= 8:
-		return remnaTrafficStrategyWeek
-	case periodDays >= 28 && periodDays <= 31:
-		return remnaTrafficStrategyMonth
-	default:
-		return remnaTrafficStrategyNoReset
-	}
-}
-
-func normalizeRemnaTrafficResetStrategy(value string) string {
-	switch strings.ToUpper(strings.TrimSpace(value)) {
-	case remnaTrafficStrategyDay:
-		return remnaTrafficStrategyDay
-	case remnaTrafficStrategyWeek:
-		return remnaTrafficStrategyWeek
-	case remnaTrafficStrategyMonth:
-		return remnaTrafficStrategyMonth
-	default:
-		return remnaTrafficStrategyNoReset
-	}
-}
-
-func isRemnaNotFoundError(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "status 404") ||
-		strings.Contains(message, "user not found") ||
-		strings.Contains(message, "not found") ||
-		strings.Contains(message, "a025") ||
-		strings.Contains(message, "a063")
 }
 
 func isIgnorableRemnaAlreadyStateError(err error) bool {
@@ -257,4 +200,19 @@ func isIgnorableRemnaAlreadyStateError(err error) bool {
 		strings.Contains(message, "same status") ||
 		strings.Contains(message, "not modified") ||
 		strings.Contains(message, "no changes")
+}
+
+func isIgnorableRemnaMissingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "status 404") ||
+		strings.Contains(message, "not found") ||
+		strings.Contains(message, "a025") ||
+		strings.Contains(message, "a063")
+}
+
+func isRemnaNotFoundError(err error) bool {
+	return isIgnorableRemnaMissingError(err)
 }

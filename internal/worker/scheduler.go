@@ -14,10 +14,20 @@ type Scheduler struct {
 	services *service.Services
 	cfg      config.WorkerConfig
 	log      *zap.Logger
+
+	lastReconcileAt time.Time
 }
 
 func NewScheduler(services *service.Services, cfg config.WorkerConfig, log *zap.Logger) *Scheduler {
-	return &Scheduler{services: services, cfg: cfg, log: log}
+	if log == nil {
+		log = zap.NewNop()
+	}
+
+	return &Scheduler{
+		services: services,
+		cfg:      cfg,
+		log:      log,
+	}
 }
 
 func (s *Scheduler) Run(ctx context.Context) error {
@@ -45,13 +55,21 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		zap.Duration("notify_interval", s.cfg.NotifyInterval),
 	)
 
-	// Run immediately, not after the first hour.
-	s.runJob(ctx, "expire subscriptions", s.services.Workers.ExpireSubscriptions)
-	s.runJob(ctx, "reconcile remnawave state", s.services.Workers.ReconcileRemnaState)
+	// First run.
+	//
+	// Important order:
+	// 1. Pull Remnawave usage/limit/date into site DB.
+	// 2. Apply local lifecycle changes.
+	// 3. Push the final site state back to Remnawave.
+	//
+	// Without this order manual edits in Remnawave can be overwritten by reconcile.
 	s.runJob(ctx, "sync remnawave usage", s.services.Workers.SyncUsage)
+	s.runJob(ctx, "expire subscriptions", s.services.Workers.ExpireSubscriptions)
 	s.runJob(ctx, "reset traffic periods", s.services.Workers.ResetTrafficPeriods)
+	s.runReconcile(ctx, false)
 	s.runJob(ctx, "notify expiring and traffic", s.services.Workers.NotifyExpiringAndTraffic)
 	s.runJob(ctx, "retry failed activations", s.services.Workers.RetryFailedActivations)
+	s.runJob(ctx, "delete old disabled users", s.services.Workers.DeleteOldDisabledUsers)
 
 	for {
 		select {
@@ -59,8 +77,10 @@ func (s *Scheduler) Run(ctx context.Context) error {
 			return ctx.Err()
 
 		case <-expireTicker.C:
+			// Pull Remnawave changes before checking local expiration.
+			s.runJob(ctx, "sync remnawave usage", s.services.Workers.SyncUsage)
 			s.runJob(ctx, "expire subscriptions", s.services.Workers.ExpireSubscriptions)
-			s.runJob(ctx, "reconcile remnawave state", s.services.Workers.ReconcileRemnaState)
+			s.runReconcile(ctx, true)
 
 		case <-deleteTicker.C:
 			s.runJob(ctx, "delete old disabled users", s.services.Workers.DeleteOldDisabledUsers)
@@ -70,16 +90,33 @@ func (s *Scheduler) Run(ctx context.Context) error {
 
 		case <-syncUsageTicker.C:
 			s.runJob(ctx, "sync remnawave usage", s.services.Workers.SyncUsage)
-			s.runJob(ctx, "reconcile remnawave state", s.services.Workers.ReconcileRemnaState)
+			s.runReconcile(ctx, true)
 
 		case <-resetTrafficTicker.C:
 			s.runJob(ctx, "reset traffic periods", s.services.Workers.ResetTrafficPeriods)
-			s.runJob(ctx, "reconcile remnawave state", s.services.Workers.ReconcileRemnaState)
+			s.runReconcile(ctx, true)
 
 		case <-notifyTicker.C:
 			s.runJob(ctx, "notify expiring and traffic", s.services.Workers.NotifyExpiringAndTraffic)
 		}
 	}
+}
+
+func (s *Scheduler) runReconcile(ctx context.Context, throttled bool) {
+	const minReconcileGap = 10 * time.Second
+
+	if throttled && !s.lastReconcileAt.IsZero() && time.Since(s.lastReconcileAt) < minReconcileGap {
+		s.log.Info(
+			"worker job skipped",
+			zap.String("job", "reconcile remnawave state"),
+			zap.String("reason", "recently reconciled"),
+			zap.Duration("min_gap", minReconcileGap),
+		)
+		return
+	}
+
+	s.lastReconcileAt = time.Now()
+	s.runJob(ctx, "reconcile remnawave state", s.services.Workers.ReconcileRemnaState)
 }
 
 func (s *Scheduler) runJob(ctx context.Context, name string, fn func(context.Context) error) {

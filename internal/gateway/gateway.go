@@ -19,7 +19,10 @@ type RemnawaveGateway interface {
 
 type TributeGateway interface{}
 
-type CryptoBotGateway interface{}
+type CryptoBotGateway interface {
+	CreateInvoice(ctx context.Context, req domain.CryptoBotCreateInvoiceRequest) (*domain.CryptoBotInvoice, error)
+	GetInvoice(ctx context.Context, invoiceID string) (*domain.CryptoBotInvoice, error)
+}
 
 type TelegramGateway interface {
 	SendMessage(ctx context.Context, telegramID int64, text string) error
